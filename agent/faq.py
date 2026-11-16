@@ -7,9 +7,15 @@ from pathlib import Path
 
 _ENTRY_HEADING = re.compile(r"^## (F\d+) · (.+)$", re.MULTILINE)
 _RULES_HEADING = "## The client's rules for the support team"
-# A domain, with an optional path. The lowercase ending keeps "word.Next sentence" from matching.
-URL = re.compile(r"(?:https?://)?((?:[A-Za-z0-9-]+\.)+[a-z]{2,}(?:/[^\s)\"']*)?)")
-EURO_AMOUNT = re.compile(r"(?:€|EUR)\s?(\d[\d.,]*)|(\d[\d.,]*)\s?(?:euro|EUR)\b", re.IGNORECASE)
+FAQ_PATH = Path(__file__).parent.parent / "faq.md"
+
+_URL = re.compile(r"(https?://|www\.)?((?:[A-Za-z0-9-]+\.)+([a-z]{2,})(?:/[^\s)\"']*)?)")
+# Without "http" or "www", a dotted word only counts as an address if it ends like one.
+# That keeps "excl.btw" and "uren.csv" from being mistaken for links.
+_ADDRESS_ENDINGS = frozenset(
+    "nl com org net eu de be io app co uk info biz dev ai me fr es it xyz online site shop".split()
+)
+_EURO_AMOUNT = re.compile(r"(?:€|\bEUR)\s?(\d[\d.,]*)|(\d[\d.,]*)-?\s?(?:euro|EUR)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -30,12 +36,13 @@ class KnowledgeBase:
         return "\n\n".join(f"{e.id} · {e.title}\n{e.text}" for e in self.entries.values())
 
 
-def normalise_url(url: str) -> str:
-    return re.sub(r"^https?://", "", url.strip()).rstrip("/.,;:!?").lower()
-
-
 def find_urls(text: str) -> set[str]:
-    return {normalise_url(match.group(1)) for match in URL.finditer(text)}
+    """Web addresses in the text, without scheme or "www", lowercased: "app.roosterly.nl/login"."""
+    return {
+        address.rstrip("/.,;:!?").lower()
+        for prefix, address, ending in _URL.findall(text)
+        if prefix or ending in _ADDRESS_ENDINGS
+    }
 
 
 def parse_amount(number: str) -> Decimal | None:
@@ -50,11 +57,11 @@ def parse_amount(number: str) -> Decimal | None:
 
 
 def find_euro_amounts(text: str) -> set[Decimal]:
-    found = (parse_amount(a or b) for a, b in EURO_AMOUNT.findall(text))
+    found = (parse_amount(a or b) for a, b in _EURO_AMOUNT.findall(text))
     return {amount.normalize() for amount in found if amount is not None}
 
 
-def load_kb(path: str | Path = "faq.md") -> KnowledgeBase:
+def load_kb(path: str | Path = FAQ_PATH) -> KnowledgeBase:
     text = Path(path).read_text(encoding="utf-8")
     faq_part, _, rules_part = text.partition(_RULES_HEADING)
     headings = list(_ENTRY_HEADING.finditer(faq_part))

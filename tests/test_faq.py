@@ -21,7 +21,13 @@ def test_allow_lists_come_from_the_help_centre():
 
 def test_urls_and_amounts_are_normalised():
     assert find_urls("Kijk op https://Status.roosterly.nl/. Klaar.Volgende zin") == {"status.roosterly.nl"}
-    assert find_euro_amounts("€150, € 1.250,00, 72 euro en EUR 4.50") == {Decimal(150), Decimal(1250), Decimal(72), Decimal("4.5")}
+    assert find_urls("www.roosterly.nl en hulp@voorbeeld.com") == {"roosterly.nl", "voorbeeld.com"}
+    assert find_euro_amounts("€150, € 1.250,00, 72 euro, 90,- euro en EUR 4.50") == {Decimal(150), Decimal(1250), Decimal(72), Decimal(90), Decimal("4.5")}
+
+
+def test_ordinary_words_are_not_mistaken_for_addresses_or_prices():
+    assert find_urls("Prijzen zijn excl.btw. Open het bestand uren.csv. Het is geïnstalleerd.daarna werkt het.") == set()
+    assert find_euro_amounts("De kleur 5 is anders en de directeur 2 keer gebeld. iOS 16 en hoger.") == set()
 
 
 def test_every_rule_flag_has_a_rule():
