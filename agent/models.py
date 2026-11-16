@@ -1,7 +1,7 @@
 """The data that moves through the pipeline: tickets in, one decision out."""
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -24,7 +24,7 @@ class Ticket(BaseModel):
     customer_plan: str = ""
     subject: str = ""
     body: str = ""
-    handled: dict | None = None  # None while the ticket is still open
+    handled: Any = None  # how the ticket was handled; None while it is still open
 
     @field_validator("received_at", "channel", "customer_plan", "subject", "body", mode="before")
     @classmethod

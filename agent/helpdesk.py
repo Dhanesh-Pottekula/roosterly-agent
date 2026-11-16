@@ -104,14 +104,16 @@ class HelpdeskClient:
                 return PostOutcome.ALREADY_HANDLED
             if response.status_code == 404:
                 return PostOutcome.NOT_FOUND
-            if response.status_code == 422:
-                raise ValidationRejected(response.json().get("problems", []))
+            if response.status_code in (400, 422):  # the body is wrong; the same body will fail again
+                error = response.json()
+                raise ValidationRejected(error.get("problems") or [error.get("message", "bad request")])
             self._checked(response)
             return PostOutcome.POSTED
         raise TransientExhausted(f"POST {path}: still ambiguous after {MAX_POST_ROUNDS} rounds")
 
     def reset_practice(self) -> dict:
-        return self._checked(self._request("POST", "/practice/reset")).json()
+        """Re-open all practice tickets. Resetting twice changes nothing, so every failure is retried."""
+        return self._checked(self._request("POST", "/practice/reset", repeatable=True)).json()
 
     # --- transport -------------------------------------------------------------------
 
@@ -124,15 +126,19 @@ class HelpdeskClient:
             raise FatalAPIError(f"{response.request.method} {response.request.url.path}: {response.status_code} {response.text[:200]}")
         return response
 
-    def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
-        """Send one request, retrying what is safe to retry. Returns any non-retryable response."""
+    def _request(self, method: str, path: str, repeatable: bool | None = None, **kwargs) -> httpx.Response:
+        """Send one request, retrying what is safe to retry. Returns any non-retryable response.
+
+        A request is repeatable when sending it twice does no harm. Reads are; posting an answer is not.
+        """
+        repeatable = method == "GET" if repeatable is None else repeatable
         for attempt in range(MAX_TRIES):
             self._throttle()
             self.attempts += 1
             try:
                 response = self._http.request(method, path, **kwargs)
             except httpx.TransportError as error:
-                if method == "POST":
+                if not repeatable:
                     raise _AmbiguousWrite(str(error)) from error
                 self._backoff(attempt)
                 continue
@@ -140,7 +146,7 @@ class HelpdeskClient:
                 self._sleep(_retry_after_seconds(response))
             elif response.status_code == 503:
                 self._backoff(attempt)
-            elif response.status_code >= 500 and method == "POST":
+            elif response.status_code >= 500 and not repeatable:
                 raise _AmbiguousWrite(f"{response.status_code}")
             elif response.status_code >= 500:
                 self._backoff(attempt)

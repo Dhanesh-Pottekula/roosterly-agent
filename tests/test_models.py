@@ -68,9 +68,17 @@ def test_usage_cost():
     assert (u + Usage(input_tokens=1)).input_tokens == 1_000_001
 
 
+def test_model_without_a_price_is_rejected_at_startup(monkeypatch):
+    for var, value in (("HELPDESK_URL", "https://x.test"), ("HELPDESK_API_KEY", "k"), ("CANDIDATE_EMAIL", "a@b.test"), ("LLM_MODEL", "some-new-model")):
+        monkeypatch.setenv(var, value)
+    with pytest.raises(ConfigError, match="some-new-model"):
+        load_settings(dotenv=False, require_llm=False)
+
+
 def test_ticket_with_null_fields_is_still_a_ticket():
     ticket = Ticket.model_validate({"id": "X1", "subject": None, "body": None, "customer_plan": None, "handled": None})
     assert (ticket.subject, ticket.body, ticket.customer_plan) == ("", "", "")
+    assert Ticket.model_validate({"id": "X1", "handled": True}).handled is not None  # any shape counts as handled
 
 
 def test_cached_input_is_cheaper():

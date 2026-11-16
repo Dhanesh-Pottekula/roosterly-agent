@@ -78,6 +78,21 @@ def test_422_reports_the_problems():
     assert "language" in rejected.value.problems
 
 
+def test_400_on_a_post_is_a_rejected_decision_not_a_dead_run():
+    client, fake, _ = make_client()
+    fake.scripted = [400]
+    with pytest.raises(ValidationRejected):
+        client.post_decision("X001", HANDOFF)
+    assert "X001" not in fake.handled
+
+
+def test_reset_is_retried_through_any_failure():
+    client, fake, _ = make_client()
+    fake.scripted = ["timeout", 500, 503]
+    client.reset_practice()
+    assert len(fake.requests) == 4
+
+
 def test_gives_up_when_the_helpdesk_stays_down():
     client, fake, _ = make_client()
     fake.scripted = [503] * 20

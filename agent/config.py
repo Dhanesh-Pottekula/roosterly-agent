@@ -39,6 +39,9 @@ def load_settings(dotenv: bool = True, require_llm: bool = True) -> Settings:
     if missing:
         raise ConfigError(f"Missing environment variables: {', '.join(missing)}. See .env.example.")
     env = os.environ
+    for var in ("LLM_MODEL", "EVAL_JUDGE_MODEL"):
+        if env.get(var) and env[var] not in PRICES:
+            raise ConfigError(f"{var}={env[var]} has no price in agent/config.py PRICES. Add it so cost can be measured.")
     return Settings(
         helpdesk_url=env["HELPDESK_URL"].rstrip("/"),
         api_key=env["HELPDESK_API_KEY"],

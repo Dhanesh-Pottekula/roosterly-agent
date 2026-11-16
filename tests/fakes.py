@@ -75,13 +75,16 @@ class FakeHelpdesk:
             if step == "timeout":
                 raise httpx.ReadTimeout("scripted timeout", request=request)
             headers = {"Retry-After": "2"} if step == 429 else {}
-            return httpx.Response(step, json={"error": "scripted"}, headers=headers)
+            return httpx.Response(step, json={"error": "scripted", "message": "scripted failure"}, headers=headers)
         if path != "/status" and self.random.random() < self.fail_rate:
             return self._error(503, "service_unavailable")
 
         if path == "/status":
             return httpx.Response(200, json={"mode": "practice", "open_tickets": len(self.tickets) - len(self.handled),
                                              "handled_tickets": len(self.handled)})
+        if path == "/practice/reset":
+            self.handled.clear()
+            return httpx.Response(200, json={"ok": True})
         if path == "/tickets":
             return self._list(request)
         ticket_id, _, action = path.removeprefix("/tickets/").partition("/")
