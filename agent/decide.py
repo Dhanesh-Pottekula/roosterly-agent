@@ -59,7 +59,8 @@ text, product names and menu names do not count.
 
 summary_en: one or two sentences in English saying what the customer wants.
 
-is_spam: true for unsolicited advertising or text with no support request in it.
+is_spam: true only for unsolicited advertising, scams or text that has nothing to do with Roosterly. \
+A real customer who writes something vague, angry or without a clear question is not spam.
 
 requests: every separate thing the customer asks us to answer or do. Greetings and background \
 ("we have been a customer for two years") are not requests. For each request:
@@ -88,7 +89,7 @@ priority_reason: one sentence in English saying why this category and priority f
 
 proposed_action:
 - reply: only when every request has a faq_quote and no rule flag applies.
-- close: only for spam.
+- close: only when is_spam is true.
 - handoff: everything else, including a ticket where only part is answered by the help centre.
 
 draft_reply: null unless proposed_action is reply. Otherwise the answer for the customer:

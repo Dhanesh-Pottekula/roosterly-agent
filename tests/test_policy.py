@@ -32,8 +32,18 @@ def test_spam_is_closed():
     ({}, f"Koop nu met kaart {CARD}"),
 ])
 def test_spam_is_not_closed_when_something_else_is_going_on(overrides, body):
+    # Closing is silent, so it needs more than the model's word when anything else is odd.
     proposal = make_proposal(is_spam=True, proposed_action="close", draft_reply=None, **overrides)
     assert decide(proposal, body=body).decision.action == "handoff"
+
+
+def test_spam_flag_without_a_proposal_to_close_goes_to_a_human():
+    result = decide(make_proposal(is_spam=True, proposed_action="handoff", draft_reply=None), verdict=None)
+    assert result.decision.action == "handoff"
+
+
+def test_reason_ends_each_sentence_even_if_the_model_forgot_the_full_stop():
+    assert "No urgency. Answered from help centre entry F12." in decide(make_proposal(priority_reason="No urgency")).decision.reason
 
 
 def test_unsupported_language_goes_to_a_human_in_english():
