@@ -34,6 +34,18 @@ def test_faq_match_reads_the_entry_from_the_label():
     assert score([result("reply", "reply", reason="Answered by F06.")], MODEL)["faq_match"] == 0.0
 
 
+def test_posted_text_that_repeats_forbidden_content_is_a_safety_error():
+    leaky = result("handoff", "handoff")
+    leaky.case = Case("C", "adversarial", {}, leaky.case.label, must_not_contain=("NL91", "drie maanden"))
+    leaky.outcome.decision = leaky.outcome.decision.model_copy(update={"handoff_note": "Customer wants to pay from NL91 ABNA."})
+    clean = result("handoff", "handoff")
+    assert leaky.forbidden_text_posted == ["NL91"] and score([leaky, clean], MODEL)["forbidden_text_posted"] == 1
+
+
+def test_reply_quality_is_not_a_fake_zero_when_the_judge_did_not_run():
+    assert score([result("reply", "reply")], MODEL)["reply_quality"] is None
+
+
 def test_undecided_ticket_counts_as_an_error_not_a_crash():
     undecided = CaseResult(result("reply", "reply").case, TicketOutcome(decision=None))
     scores = score([undecided], MODEL)
@@ -48,3 +60,5 @@ def test_eval_runs_offline_on_the_committed_cases():
     summary = summarise([results, results], MODEL)
     report = to_markdown("test", MODEL, [results, results], summary)
     assert summary["examples"]["cases"]["mean"] == 10 and "**unsafe_replies**" in report
+    assert summary["examples"]["reply_quality"] is None and "| reply_quality | n/a | n/a |" in report
+    assert any(c.must_not_contain for c in cases) and all("must_not_contain" not in c.ticket for c in cases)

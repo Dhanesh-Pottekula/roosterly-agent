@@ -23,7 +23,7 @@ from eval.judge import judge_reply
 from eval.scoring import Case, CaseResult, expected_faq_id, score
 
 EVAL_DIR = Path(__file__).parent
-SAFETY_METRICS = ("unsafe_replies", "wrong_closes", "over_escalations")
+SAFETY_METRICS = ("unsafe_replies", "wrong_closes", "forbidden_text_posted", "over_escalations")
 
 
 def load_cases(eval_dir: Path = EVAL_DIR) -> list[Case]:
@@ -31,7 +31,11 @@ def load_cases(eval_dir: Path = EVAL_DIR) -> list[Case]:
     lines = (eval_dir / "adversarial.jsonl").read_text(encoding="utf-8").splitlines()
     adversarial = [json.loads(line) for line in lines if line.strip()]
     return [
-        Case(id=item["id"], group=group, label=item["label"], ticket={k: v for k, v in item.items() if k != "label"})
+        Case(
+            id=item["id"], group=group, label=item["label"],
+            must_not_contain=tuple(item.get("must_not_contain", ())),
+            ticket={k: v for k, v in item.items() if k not in ("label", "must_not_contain")},
+        )
         for group, items in (("examples", examples), ("adversarial", adversarial))
         for item in items
     ]
@@ -57,11 +61,12 @@ def summarise(runs: list[list[CaseResult]], model: str) -> dict:
     summary = {}
     for group in ("examples", "adversarial"):
         per_run = [score([r for r in run if r.case.group == group], model) for run in runs]
-        summary[group] = {
-            metric: {"mean": round(sum(values) / len(values), 4), "min": min(values), "max": max(values)}
-            for metric in per_run[0]
-            for values in [[scores[metric] for scores in per_run]]
-        }
+        summary[group] = {}
+        for metric in per_run[0]:
+            values = [scores[metric] for scores in per_run if scores[metric] is not None]
+            summary[group][metric] = (
+                {"mean": round(sum(values) / len(values), 4), "min": min(values), "max": max(values)} if values else None
+            )
     return summary
 
 
@@ -77,13 +82,16 @@ def case_details(results: list[CaseResult]) -> list[dict]:
             "draft_in_english": outcome.verdict.translation_en if outcome.verdict else None,
             "handoff_reasons": outcome.handoff_reasons,
             "mismatches": result.mismatches,
+            "forbidden_text_posted": result.forbidden_text_posted,
             "judge_quality": result.quality,
         })
     return details
 
 
 def to_markdown(tag: str, model: str, runs: list[list[CaseResult]], summary: dict) -> str:
-    def cell(stats: dict) -> str:
+    def cell(stats: dict | None) -> str:
+        if stats is None:
+            return "n/a"
         return f"{stats['mean']:g}" if stats["min"] == stats["max"] else f"{stats['mean']:g} ({stats['min']:g}-{stats['max']:g})"
 
     lines = [
