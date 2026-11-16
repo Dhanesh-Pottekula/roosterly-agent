@@ -17,7 +17,7 @@ from agent.helpdesk import FatalAPIError, HelpdeskClient, TransientExhausted, Va
 from agent.llm import LLM, LLMFatalError
 from agent.models import Decision, Usage
 from agent.pipeline import TicketOutcome, decide_ticket
-from agent.runlog import RunLogger, append_spend, utc_now
+from agent.runlog import RunLogger, append_spend, ticket_fields, utc_now
 
 # Outcomes that leave the ticket open. They get a second try in the same run, then a non-zero exit.
 LEFT_OPEN = {"left_open_llm", "failed_transient", "failed_error"}
@@ -33,140 +33,109 @@ class RunSummary:
     status: dict
 
 
-def run(
-    settings: Settings,
-    helpdesk: HelpdeskClient,
-    llm: LLM,
-    kb: KnowledgeBase,
-    dry_run: bool = False,
-    limit: int | None = None,
-    log_dir: str | Path = "logs",
-) -> RunSummary:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    log = RunLogger(f"dry-{stamp}" if dry_run else stamp, log_dir)
-    helpdesk.status(send_name=True)
-    ticket_ids = helpdesk.list_open_ids()[:limit]
+class Runner:
+    def __init__(self, settings: Settings, helpdesk: HelpdeskClient, llm: LLM, kb: KnowledgeBase,
+                 dry_run: bool = False, log_dir: str | Path = "logs"):
+        self.settings, self.helpdesk, self.llm, self.kb = settings, helpdesk, llm, kb
+        self.dry_run = dry_run
+        self.log_dir = log_dir
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        self.log = RunLogger(f"dry-{stamp}" if dry_run else stamp, log_dir)
+        self.usage = Usage()
 
-    usage = Usage()
-    outcomes: Counter[str] = Counter()
+    def run(self, limit: int | None = None) -> RunSummary:
+        self.helpdesk.status(send_name=True)
+        ticket_ids = self.helpdesk.list_open_ids()[:limit]
+        outcomes: Counter[str] = Counter()
 
-    def handle(ticket_id: str) -> dict:
-        nonlocal usage
-        record = _handle_ticket(ticket_id, settings, helpdesk, llm, kb, dry_run) | {"run_id": log.run_id}
-        usage += record.pop("_usage")
+        def finish(record: dict) -> None:
+            """Write the ticket's one log line: its final outcome in this run."""
+            outcomes[record["outcome"]] += 1
+            self.log.write(record)
+
+        retry_ids = []
+        for ticket_id in ticket_ids:
+            record = self._handle(ticket_id)
+            if record["outcome"] in LEFT_OPEN:
+                retry_ids.append(ticket_id)  # try once more at the end of the run
+            else:
+                finish(record)  # logged right away, so a crash loses nothing
+        for ticket_id in retry_ids:
+            finish(self._handle(ticket_id))
+
+        return self._summarise(len(ticket_ids), dict(outcomes))
+
+    def _handle(self, ticket_id: str) -> dict:
+        """Take one ticket as far as it can go, and return its log record."""
+        started = time.monotonic()
+        attempts_before = self.helpdesk.attempts
+        record = {"ts": utc_now(), "run_id": self.log.run_id, "ticket_id": ticket_id}
+        try:
+            ticket = self.helpdesk.get_ticket(ticket_id)
+            if ticket is None:
+                record["outcome"] = "not_found"
+            elif ticket.handled is not None:
+                record["outcome"] = "skipped_handled"  # answered since we listed it: never answer twice
+            else:
+                result = decide_ticket(ticket, self.kb, self.llm, self.settings.llm_model)
+                self.usage += result.usage
+                record |= {"received_at": ticket.received_at} | ticket_fields(result, self.settings.llm_model)
+                record |= self._deliver(ticket_id, result)
+        except TransientExhausted:
+            record["outcome"] = "failed_transient"
+        except (FatalAPIError, LLMFatalError):
+            raise  # wrong key or setup: every ticket would fail, so stop
+        except Exception as error:  # one odd ticket must not block the rest of the queue
+            record |= {"outcome": "failed_error", "error": type(error).__name__}
+        record["http_attempts"] = self.helpdesk.attempts - attempts_before
+        record["duration_ms"] = round((time.monotonic() - started) * 1000)
         return record
 
-    def finish(record: dict) -> None:
-        """Write the ticket's one log line: its final outcome in this run."""
-        outcomes[record["outcome"]] += 1
-        log.write(record)
+    def _deliver(self, ticket_id: str, result: TicketOutcome) -> dict:
+        """Post the decision, unless there is none or this is a dry run."""
+        if result.decision is None:
+            return {"outcome": "left_open_llm"}
+        if self.dry_run:
+            print_decision(ticket_id, result)
+            return {"outcome": "dry_run"}
+        try:
+            return {"outcome": self.helpdesk.post_decision(ticket_id, result.decision).value}
+        except ValidationRejected as rejected:
+            # The helpdesk refused the fields. Do not drop the ticket: give it to a human.
+            outcome = self.helpdesk.post_decision(ticket_id, _fallback_handoff(result.decision)).value
+            return {"outcome": outcome, "action": "handoff", "validation_problems": rejected.problems}
 
-    retry_ids = []
-    for ticket_id in ticket_ids:
-        record = handle(ticket_id)
-        if record["outcome"] in LEFT_OPEN:
-            retry_ids.append(ticket_id)  # a temporary failure: try once more at the end
-        else:
-            finish(record)  # logged right away, so a crash loses nothing
-    for ticket_id in retry_ids:
-        finish(handle(ticket_id))
-
-    summary = RunSummary(
-        run_id=log.run_id,
-        outcomes=dict(outcomes),
-        left_open=sum(outcomes[name] for name in LEFT_OPEN),
-        usage=usage,
-        cost_usd=usage.cost_usd(settings.llm_model),
-        status=helpdesk.status(),
-    )
-    log.write_summary({
-        "run_id": summary.run_id, "model": settings.llm_model, "tickets": len(ticket_ids),
-        "outcomes": summary.outcomes, "tokens_in": usage.input_tokens, "tokens_out": usage.output_tokens,
-        "cache_read": usage.cache_read_tokens, "cache_write": usage.cache_write_tokens,
-        "cost_usd": round(summary.cost_usd, 6), "helpdesk_status": summary.status,
-    })
-    append_spend("dry-run" if dry_run else "run", log.run_id, usage, settings.llm_model, log_dir)
-    return summary
-
-
-def _handle_ticket(ticket_id, settings, helpdesk, llm, kb, dry_run) -> dict:
-    started = time.monotonic()
-    attempts_before = helpdesk.attempts
-    record = {"ts": utc_now(), "ticket_id": ticket_id, "_usage": Usage()}
-    try:
-        ticket = helpdesk.get_ticket(ticket_id)
-        if ticket is None:
-            record["outcome"] = "not_found"
-        elif ticket.handled is not None:
-            record["outcome"] = "skipped_handled"  # answered since we listed it: never answer twice
-        else:
-            result = decide_ticket(ticket, kb, llm, settings.llm_model)
-            record |= _describe(result, settings.llm_model) | {"received_at": ticket.received_at}
-            if result.decision is None:
-                record["outcome"] = "left_open_llm"
-            elif dry_run:
-                _print_decision(ticket_id, result)
-                record["outcome"] = "dry_run"
-            else:
-                record |= _post(helpdesk, ticket_id, result.decision)
-    except TransientExhausted:
-        record["outcome"] = "failed_transient"
-    except (FatalAPIError, LLMFatalError):
-        raise  # wrong key or setup: every ticket would fail, so stop
-    except Exception as error:  # one odd ticket must not block the rest of the queue
-        record |= {"outcome": "failed_error", "error": type(error).__name__}
-    record["http_attempts"] = helpdesk.attempts - attempts_before
-    record["duration_ms"] = round((time.monotonic() - started) * 1000)
-    return record
-
-
-def _post(helpdesk: HelpdeskClient, ticket_id: str, decision: Decision) -> dict:
-    """Post the decision. If the helpdesk rejects its fields (422), hand the ticket to a human instead."""
-    try:
-        return {"outcome": helpdesk.post_decision(ticket_id, decision).value}
-    except ValidationRejected as rejected:
-        fallback = Decision(
-            action="handoff", language=decision.language, category=decision.category,
-            priority=decision.priority, confidence=0.3,
-            reason="The helpdesk rejected the automatic decision, so a human must handle this ticket.",
-            handoff_note="The agent's decision was rejected by the helpdesk. Please read the original ticket; "
-                         "nothing was sent to the customer.",
+    def _summarise(self, ticket_count: int, outcomes: dict[str, int]) -> RunSummary:
+        model = self.settings.llm_model
+        summary = RunSummary(
+            run_id=self.log.run_id,
+            outcomes=outcomes,
+            left_open=sum(count for outcome, count in outcomes.items() if outcome in LEFT_OPEN),
+            usage=self.usage,
+            cost_usd=self.usage.cost_usd(model),
+            status=self.helpdesk.status(),
         )
-        outcome = helpdesk.post_decision(ticket_id, fallback).value
-        return {"outcome": outcome, "action": "handoff", "validation_problems": rejected.problems}
+        self.log.write_summary({
+            "run_id": summary.run_id, "model": model, "tickets": ticket_count, "outcomes": outcomes,
+            "tokens_in": self.usage.input_tokens, "tokens_out": self.usage.output_tokens,
+            "cache_read": self.usage.cache_read_tokens, "cache_write": self.usage.cache_write_tokens,
+            "cost_usd": round(summary.cost_usd, 6), "helpdesk_status": summary.status,
+        })
+        append_spend("dry-run" if self.dry_run else "run", summary.run_id, self.usage, model, self.log_dir)
+        return summary
 
 
-def _describe(result: TicketOutcome, model: str) -> dict:
-    """The log fields for one decided ticket. Codes and labels only: no customer text."""
-    fields: dict = {
-        "model": model,
-        "tokens_in": result.usage.input_tokens + result.usage.cache_read_tokens + result.usage.cache_write_tokens,
-        "tokens_out": result.usage.output_tokens,
-        "cost_usd": round(result.usage.cost_usd(model), 6),
-        "handoff_reasons": result.handoff_reasons,
-        "_usage": result.usage,
-    }
-    if result.decision:
-        decision = result.decision
-        fields |= {
-            "language": decision.language, "category": decision.category, "priority": decision.priority,
-            "action": decision.action, "confidence": decision.confidence,
-        }
-    if result.proposal:
-        fields |= {
-            "proposed_action": result.proposal.proposed_action,
-            "faq_ids": sorted({r.faq_id for r in result.proposal.requests if r.faq_id}),
-            "rule_flags": result.proposal.rule_flags,
-            "instructions_in_ticket": result.proposal.contains_instructions_to_ai,
-        }
-    if result.verdict:
-        fields["verifier_ok"] = not result.verdict.problems(result.decision.language) and not result.verdict.always_human
-    if result.transient_error:
-        fields["llm_error"] = result.transient_error[:100]
-    return fields
+def _fallback_handoff(rejected: Decision) -> Decision:
+    return Decision(
+        action="handoff", language=rejected.language, category=rejected.category,
+        priority=rejected.priority, confidence=0.3,
+        reason="The helpdesk rejected the automatic decision, so a human must handle this ticket.",
+        handoff_note="The agent's decision was rejected by the helpdesk. Please read the original ticket; "
+                     "nothing was sent to the customer.",
+    )
 
 
-def _print_decision(ticket_id: str, result: TicketOutcome) -> None:
+def print_decision(ticket_id: str, result: TicketOutcome) -> None:
     """Dry run: show what would be posted, with the English translation of a reply."""
     decision = result.decision
     print(f"\n=== {ticket_id}: {decision.action} · {decision.language} · {decision.category} · {decision.priority}")

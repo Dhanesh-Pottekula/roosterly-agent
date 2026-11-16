@@ -65,6 +65,23 @@ def summarise(runs: list[list[CaseResult]], model: str) -> dict:
     return summary
 
 
+def case_details(results: list[CaseResult]) -> list[dict]:
+    """One run in full: what was expected, what was decided, and each reply with its English translation."""
+    details = []
+    for result in results:
+        outcome, decision = result.outcome, result.outcome.decision
+        details.append({
+            "id": result.case.id,
+            "expected": {k: result.case.label[k] for k in ("language", "category", "priority", "action")},
+            "got": decision.model_dump(exclude_none=True) if decision else None,
+            "draft_in_english": outcome.verdict.translation_en if outcome.verdict else None,
+            "handoff_reasons": outcome.handoff_reasons,
+            "mismatches": result.mismatches,
+            "judge_quality": result.quality,
+        })
+    return details
+
+
 def to_markdown(tag: str, model: str, runs: list[list[CaseResult]], summary: dict) -> str:
     def cell(stats: dict) -> str:
         return f"{stats['mean']:g}" if stats["min"] == stats["max"] else f"{stats['mean']:g} ({stats['min']:g}-{stats['max']:g})"
@@ -110,7 +127,7 @@ def main() -> None:
     summary = summarise(runs, settings.llm_model)
     stem = EVAL_DIR / "results" / f"{date.today().isoformat()}_{args.tag}"
     stem.parent.mkdir(exist_ok=True)
-    stem.with_suffix(".json").write_text(json.dumps({"tag": args.tag, "model": settings.llm_model, "runs": args.runs, "summary": summary}, indent=2) + "\n", encoding="utf-8")
+    stem.with_suffix(".json").write_text(json.dumps({"tag": args.tag, "model": settings.llm_model, "runs": args.runs, "summary": summary, "last_run": case_details(runs[-1])}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     report = to_markdown(args.tag, settings.llm_model, runs, summary)
     stem.with_suffix(".md").write_text(report, encoding="utf-8")
     print(report)

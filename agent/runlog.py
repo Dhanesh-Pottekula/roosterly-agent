@@ -9,11 +9,38 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from agent.models import Usage
+from agent.pipeline import TicketOutcome
 from agent.redact import redact_payment
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def ticket_fields(result: TicketOutcome, model: str) -> dict:
+    """What the log records about one decided ticket. Codes and labels only: no customer text."""
+    usage = result.usage
+    fields: dict = {
+        "model": model,
+        "tokens_in": usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens,
+        "tokens_out": usage.output_tokens,
+        "cost_usd": round(usage.cost_usd(model), 6),
+        "handoff_reasons": result.handoff_reasons,
+    }
+    if result.decision:
+        fields |= result.decision.model_dump(include={"language", "category", "priority", "action", "confidence"})
+    if result.proposal:
+        fields |= {
+            "proposed_action": result.proposal.proposed_action,
+            "faq_ids": sorted({request.faq_id for request in result.proposal.requests if request.faq_id}),
+            "rule_flags": result.proposal.rule_flags,
+            "instructions_in_ticket": result.proposal.contains_instructions_to_ai,
+        }
+    if result.verdict:
+        fields["verifier_objections"] = result.verdict.problems(result.decision.language) + result.verdict.always_human
+    if result.transient_error:
+        fields["llm_error"] = result.transient_error[:100]
+    return fields
 
 
 class RunLogger:
