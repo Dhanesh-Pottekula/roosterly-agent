@@ -5,7 +5,9 @@ from agent.faq import load_kb
 from agent.models import Ticket
 from agent.redact import redact_ticket
 from agent.rules import ALWAYS_HUMAN
-from agent.verify import build_verifier_prompt, check_note, check_reply, detect_language
+from agent.checks import check_note, check_reply
+from agent.language import detect_language
+from agent.verify import build_verifier_prompt
 from tests.fakes import CARD, DUTCH_DRAFT, F12_QUOTE, make_verdict
 
 kb = load_kb()
@@ -30,6 +32,8 @@ def problems(draft, language="nl", requests=F12, rt=None):
     ("Wo finde ich die Übersicht meiner Stunden?", "de"),
     ("The label on the export screen reads 'Urenoverzicht downloaden' twice.", "en"),
     ("Go to Instellingen → Abonnement → Facturen (Settings → Subscription → Invoices) to download your invoices.", "en"),
+    ("Ik heb zo'n 20 medewerkers en de foto's van 's ochtends laden niet meer.", "nl"),
+    ("I can't log in and my staff don't see next week's rota.", "en"),
     ("", "unknown"),
     ("→ (ok) 'x'", "unknown"),
 ])
@@ -50,6 +54,8 @@ def test_draft_in_the_wrong_language_fails():
 @pytest.mark.parametrize("extra, problem", [
     ("Kijk ook op www.example.com.", "address_not_in_help_centre"),
     ("Mail naar hulp@roosterly.nl.", "address_not_in_help_centre"),
+    ("Log in op roosterly.nl.", "address_not_in_help_centre"),
+    ("Dat kost 5,- euro per maand.", "amount_not_in_help_centre"),
     ("Je krijgt 20% minder.", "percentage_in_draft"),
     ("Je krijgt 50 procent minder.", "percentage_in_draft"),
     ("Dat kost €5 per maand.", "amount_not_in_help_centre"),
@@ -66,6 +72,8 @@ def test_unsafe_content_is_caught(extra, problem):
     "Kijk op status.roosterly.nl voor storingen.",
     "Ga naar app.roosterly.nl/login.",
     "De koppeling met Loket.nl zit in Plus.",
+    "Prijzen zijn excl.btw en je kunt de uren als uren.csv downloaden.",
+    "Kies een andere kleur 5 keer.",
     "De link is 60 minuten geldig. Geen mail binnen 10 minuten? Kijk in je spam.",
 ])
 def test_help_centre_facts_are_allowed(extra):
