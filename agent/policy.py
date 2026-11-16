@@ -30,12 +30,13 @@ EXPLANATIONS = {
 }
 
 
-# Text aimed at the reader's AI rather than at the support team. The model is asked to flag this
-# too; this pattern is the part that cannot be talked out of it.
+# Text aimed at the reader's AI rather than at the support team: "ignore your instructions",
+# "note for the AI assistant". The model is asked to flag this too; this pattern catches the
+# common forms even when the model was talked out of flagging them. It is narrow on purpose:
+# a customer who merely mentions a chatbot or a system message must not lose their priority.
 _ADDRESSES_THE_AI = re.compile(
-    r"\b(ai|chatbot|language model|taalmodel|sprachmodell)\b"  # not "assistant": that is a job title
-    r"|system ?(message|prompt)|systeembericht|systemnachricht"
-    r"|(negeer|ignore|ignoriere|vergeet|forget|vergiss)\b.{0,40}(instructi|regels|rules|anweisung|regeln)",
+    r"\b(negeer|ignore|ignoriere|vergeet|forget|vergiss)\b.{0,40}\b(instructi\w*|regels|rules|anweisung\w*|regeln)\b"
+    r"|\b(voor|aan|to|for|für|an) (de |het |the |den |die |das )?(ai\b|chatbot|taalmodel|language model|sprachmodell)",
     re.IGNORECASE,
 )
 
@@ -137,27 +138,40 @@ def choose_action(
 
 # --- building the decision ------------------------------------------------------------
 
+
 def _close(rt: RedactedTicket, p: Proposal, facts: Facts, reasons: list[str]) -> Decision:
     return Decision(
-        action="close", language=facts.language or "nl", category="other", priority="P4",
-        reason="Spam: unsolicited message with no support request.", confidence=CONFIDENCE_CLOSE,
+        action="close",
+        language=facts.language or "nl",
+        category="other",
+        priority="P4",
+        reason="Spam: unsolicited message with no support request.",
+        confidence=CONFIDENCE_CLOSE,
     )
 
 
 def _reply(rt: RedactedTicket, p: Proposal, facts: Facts, reasons: list[str]) -> Decision:
     faq_ids = ", ".join(sorted({request.faq_id for request in p.requests if request.faq_id}))
     return Decision(
-        action="reply", language=facts.language, category=p.category, priority=facts.priority,
+        action="reply",
+        language=facts.language,
+        category=p.category,
+        priority=facts.priority,
         reason=f"{_sentence(p.priority_reason)} Answered from help centre entry {faq_ids}.",
-        draft_reply=p.draft_reply, confidence=CONFIDENCE_REPLY,
+        draft_reply=p.draft_reply,
+        confidence=CONFIDENCE_REPLY,
     )
 
 
 def _handoff(rt: RedactedTicket, p: Proposal, facts: Facts, reasons: list[str]) -> Decision:
     decided_by_rule = bool(facts.flags) or rt.had_payment or reasons == ["urgent_or_blocking"]
     return Decision(
-        action="handoff", language=facts.language or "en", category=p.category, priority=facts.priority,
-        reason=_handoff_reason(p, facts, reasons), handoff_note=_handoff_note(rt, p, facts, reasons),
+        action="handoff",
+        language=facts.language or "en",
+        category=p.category,
+        priority=facts.priority,
+        reason=_handoff_reason(p, facts, reasons),
+        handoff_note=_handoff_note(rt, p, facts, reasons),
         confidence=CONFIDENCE_RULE_HANDOFF if decided_by_rule else CONFIDENCE_UNSURE_HANDOFF,
     )
 
@@ -168,7 +182,9 @@ def _handoff_reason(p: Proposal, facts: Facts, reasons: list[str]) -> str:
         labels = " and ".join(ALWAYS_HUMAN[flag].label for flag in facts.flags)
         why_human = f"Client rule: {labels} always goes to a human."
     else:
-        why_human = EXPLANATIONS.get(reasons[0], f"The drafted reply failed a check ({reasons[0]}), so a human answers.")
+        why_human = EXPLANATIONS.get(
+            reasons[0], f"The drafted reply failed a check ({reasons[0]}), so a human answers."
+        )
     if facts.priority == p.priority:
         return f"{why_human} {_sentence(p.priority_reason)}"
     return f"{why_human} Priority set to {facts.priority} by policy."
