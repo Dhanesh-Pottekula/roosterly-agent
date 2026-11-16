@@ -1,0 +1,6 @@
+httpx==0.28.1
+pydantic==2.14.3
+anthropic==2.9.0
+python-dotenv==1.2.4
+lingua-language-detector==2.2.0
+pytest==9.2.0
