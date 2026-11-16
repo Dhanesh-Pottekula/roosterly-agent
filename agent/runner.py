@@ -53,15 +53,17 @@ class Runner:
             outcomes[record["outcome"]] += 1
             self.log.write(record)
 
-        retry_ids = []
+        first_attempts = []
         for ticket_id in ticket_ids:
             record = self._handle(ticket_id)
             if record["outcome"] in LEFT_OPEN:
-                retry_ids.append(ticket_id)  # try once more at the end of the run
+                first_attempts.append(record)  # try once more at the end of the run
             else:
-                finish(record)  # logged right away, so a crash loses nothing
-        for ticket_id in retry_ids:
-            finish(self._handle(ticket_id))
+                finish(record)  # logged as soon as the outcome is known
+        for first in first_attempts:
+            # Keep the first attempt's decision fields: if our post did land after all, the
+            # second attempt only sees "already handled" and would log nothing about it.
+            finish(first | self._handle(first["ticket_id"]))
 
         return self._summarise(len(ticket_ids), dict(outcomes))
 

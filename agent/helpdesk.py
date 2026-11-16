@@ -19,6 +19,7 @@ from agent.models import Decision, Ticket
 MAX_TRIES = 8  # per request, for 429/503 and failed reads
 MAX_POST_ROUNDS = 3  # per decision, for ambiguous writes
 PAGE_SIZE = 10
+MAX_RETRY_AFTER = 30.0  # seconds; never sleep longer on the server's say-so
 
 
 class PostOutcome(Enum):
@@ -92,10 +93,11 @@ class HelpdeskClient:
 
     def post_decision(self, ticket_id: str, decision: Decision) -> PostOutcome:
         path = f"/tickets/{ticket_id}/{decision.action}"
-        for _ in range(MAX_POST_ROUNDS):
+        for round_number in range(MAX_POST_ROUNDS):
             try:
                 response = self._request("POST", path, json=decision.to_api_body())
             except _AmbiguousWrite:
+                self._backoff(round_number)  # give a slow write time to land before reading it back
                 ticket = self.get_ticket(ticket_id)
                 if ticket is not None and ticket.handled is not None:
                     return PostOutcome.POSTED  # the write did land; do not answer twice
@@ -168,6 +170,6 @@ class HelpdeskClient:
 
 def _retry_after_seconds(response: httpx.Response) -> float:
     try:
-        return max(float(response.headers.get("Retry-After", "")), 0.0)
+        return min(max(float(response.headers.get("Retry-After", "")), 0.0), MAX_RETRY_AFTER)
     except ValueError:
         return 1.0

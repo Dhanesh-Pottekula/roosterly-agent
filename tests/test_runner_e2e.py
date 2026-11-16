@@ -1,14 +1,17 @@
 """End to end against the fake helpdesk: every ticket handled exactly once, whatever goes wrong."""
 
 import json
+import random
 
+import httpx
 import pytest
 
 from agent.decide import Proposal
 from agent.faq import load_kb
-from agent.helpdesk import HelpdeskClient
+from agent.helpdesk import HelpdeskClient, TransientExhausted
 from agent.llm import LLMFatalError, LLMTransientError
 from agent.runner import Runner
+from agent.verify import Verdict
 from tests.fakes import CARD, SETTINGS, FakeClock, FakeHelpdesk, FakeLLM, make_proposal, make_tickets
 
 kb = load_kb()
@@ -108,12 +111,13 @@ def test_rejected_decision_falls_back_to_a_handoff(tmp_path):
     def reject_first(request, ticket_id, action):
         if not rejected_once:
             rejected_once.append(True)
-            return type(original(request, "missing", action))(422, json={"error": "validation_failed", "problems": ["draft_reply"]})
+            return httpx.Response(422, json={"error": "validation_failed", "problems": ["draft_reply"]})
         return original(request, ticket_id, action)
 
     fake._post = reject_first
     summary = Runner(SETTINGS, client, FakeLLM(), kb, log_dir=tmp_path).run()
-    assert fake.handled["X001"]["action"] == "handoff"
+    assert fake.handled["X001"]["action"] == "handoff" and list(fake.handled) == ["X001"]
+    assert summary.status["open_tickets"] == 0
     line = log_lines(tmp_path, summary)[0]
     assert line["outcome"] == "posted" and line["action"] == "handoff" and line["validation_problems"] == ["draft_reply"]
 
@@ -158,3 +162,62 @@ def test_log_writer_redacts_whatever_it_is_given(tmp_path):
     log.write({"ticket_id": "X1", "note": f"card {CARD} and iban NL91ABNA0417164300"})
     written = log.path.read_text()
     assert "5555" not in written and "NL91" not in written and json.loads(written)["ticket_id"] == "X1"
+
+
+@pytest.mark.parametrize("seed", range(25))
+def test_chaos_no_ticket_is_ever_answered_twice(tmp_path, seed):
+    """Random 503s, responses lost after the save, failures before the save and crashes, until all is handled."""
+    client, fake = setup(fail_rate=0.15, seed=seed)
+    rng = random.Random(seed)
+    original = fake._post
+
+    def chaotic_post(request, ticket_id, action):
+        roll = rng.random()
+        if roll < 0.10 and ticket_id not in fake.handled:
+            fake.commit_then_fail = rng.choice(["timeout", 500, 502, 504])
+        elif roll < 0.18:
+            raise httpx.ConnectError("refused", request=request)
+        elif roll < 0.22:
+            raise KeyboardInterrupt("crash")
+        return original(request, ticket_id, action)
+
+    fake._post = chaotic_post
+    for _ in range(40):
+        try:
+            Runner(SETTINGS, client, FakeLLM(), kb, log_dir=tmp_path).run()
+        except (KeyboardInterrupt, TransientExhausted):
+            pass
+        if len(fake.handled) == 30:
+            break
+    assert len(fake.handled) == 30 and fake.statuses[409] == 0 and fake.statuses[429] == 0
+
+
+def test_own_post_confirmed_late_is_logged_with_its_decision(tmp_path):
+    # The post is saved, the response is lost, and reading it back fails too. The end-of-run
+    # retry finds the ticket handled; its log line must still say what we decided.
+    client, fake = setup(count=1)
+    fake.commit_then_fail = 504
+    original = fake._respond
+    reads_to_fail = [8]
+
+    def failing_readback(request):
+        if request.method == "GET" and request.url.path == "/tickets/X001" and fake.handled and reads_to_fail[0]:
+            reads_to_fail[0] -= 1
+            return httpx.Response(503, json={"error": "service_unavailable"})
+        return original(request)
+
+    fake._respond = failing_readback
+    summary = Runner(SETTINGS, client, FakeLLM(), kb, log_dir=tmp_path).run()
+    line = log_lines(tmp_path, summary)[0]
+    assert fake.post_count["X001"] == 1 and summary.left_open == 0
+    assert (line["outcome"], line["action"], line["priority"]) == ("skipped_handled", "reply", "P4")
+
+
+def test_llm_rejecting_one_ticket_does_not_stop_the_others(tmp_path):
+    from agent.llm import LLMDeterministicError
+
+    client, fake = setup(count=3)
+    fake.tickets["X002"]["body"] = "te groot " * 5
+    llm = FakeLLM(proposal=lambda user: LLMDeterministicError("request_rejected_413") if "te groot" in user else make_proposal())
+    summary = Runner(SETTINGS, client, llm, kb, log_dir=tmp_path).run()
+    assert len(fake.handled) == 3 and fake.handled["X002"]["action"] == "handoff" and summary.left_open == 0

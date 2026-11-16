@@ -93,6 +93,22 @@ def test_reset_is_retried_through_any_failure():
     assert len(fake.requests) == 4
 
 
+def test_retry_after_is_capped():
+    client, fake, clock = make_client()
+    fake.scripted = [429]
+    original = fake._respond
+
+    def with_huge_wait(request):
+        response = original(request)
+        if response.status_code == 429:
+            response.headers["Retry-After"] = "86400"
+        return response
+
+    fake._respond = with_huge_wait
+    client.status()
+    assert max(clock.sleeps) <= 30
+
+
 def test_gives_up_when_the_helpdesk_stays_down():
     client, fake, _ = make_client()
     fake.scripted = [503] * 20
