@@ -11,13 +11,13 @@ cp .env.example .env                                  # fill in the keys and you
 python -m agent run                                   # handle every open ticket (add --dry-run to post nothing)
 python -m agent status                                # open / handled counts
 python -m eval.run_eval --tag baseline --runs 3 --judge
-pytest                                                # 146 tests, no network
+pytest                                                # 175 tests, no network
 ```
 
 ## Decisions
 
 1. **The LLM proposes, code decides.** One structured call proposes a decision ([decide.py](agent/decide.py)). A deterministic gate ([policy.py](agent/policy.py)) posts it, and can only move a ticket towards a human. The client's "always a human" rules live in one table ([rules.py](agent/rules.py)) that feeds both prompts and the gate.
-2. **Dutch: work in the customer's language, verify in English.** The model reads and writes Dutch directly (translating first loses menu names and tone). I cannot read Dutch, so a reply is sent only if it passes ([verify.py](agent/verify.py)): a language detector, an allow-list of addresses and prices from `faq.md`, a ban on promises and percentages, a help-centre sentence quoted word for word for every request, and a second model call in a fresh context that translates the draft back to English and re-checks it. Cost: one extra call per reply. `--dry-run` prints that English translation.
+2. **Dutch: work in the customer's language, verify in English.** The model reads and writes Dutch directly (translating first loses menu names and tone). I cannot read Dutch, so a reply is sent only if it passes deterministic checks ([checks.py](agent/checks.py): language detector, allow-list of addresses and prices from `faq.md`, no promises or percentages, a help-centre sentence quoted word for word for every request) and an independent verifier ([verify.py](agent/verify.py)): a second model call in a fresh context that translates the draft back to English and re-checks it. Cost: one extra call per reply. `--dry-run` prints that English translation.
 3. **The helpdesk is the only memory.** No local state file: the agent lists open tickets and re-reads each one before deciding, so a re-run cannot answer twice.
 
 **Unsure** means any of: a request without a quoted help-centre sentence, a failed check, a verifier objection, detector and model disagreeing on the language, or a model failure. Each one is a handoff, and the log names it.
@@ -30,10 +30,10 @@ pytest                                                # 146 tests, no network
 
 - **503**: nothing was saved, so retry with exponential backoff and jitter (8 tries).
 - **429**: requests are spaced at 4 per second, so it should not happen; if it does, wait `Retry-After`.
-- **409**: never retried. It is logged as `already_handled`.
+- **409**: never retried. It is logged as `already_handled`. In 150 randomised failure runs against a fake helpdesk it never occurred.
 - **Timeout or other 5xx on a POST**: the write may have landed. The agent reads the ticket back and posts again only if it is still open.
 - **Crash**: run the same command again. Tests inject a crash after 7 posts and check that no ticket gets two answers.
-- **LLM outage**: the ticket stays open, is retried once, and the run exits non-zero. A refusal becomes a handoff.
+- **LLM outage or a bug on one ticket**: the ticket stays open, is retried once, and the run exits non-zero; the rest of the queue continues. A refusal becomes a handoff.
 - **Security**: keys only from the environment; ticket text is wrapped as data and cannot raise its own priority; the model has no tools; payment details never reach the model, a reply, a note or a log; logs hold codes, not customer text.
 
 ## Eval and fix
