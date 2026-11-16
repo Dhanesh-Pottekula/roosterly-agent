@@ -56,6 +56,20 @@ def test_verifier_is_skipped_when_the_deterministic_checks_already_failed():
     assert {"percentage_in_draft", "promise_in_draft"} <= set(outcome.handoff_reasons)
 
 
+def test_verifier_failure_keeps_the_proposal_and_hands_off():
+    # A refusal by the verifier must not throw away the proposer's category, priority and note.
+    llm = FakeLLM(verdict=LLMDeterministicError("refusal"))
+    outcome = decide_ticket(ticket(), kb, llm, MODEL)
+    d = outcome.decision
+    assert (d.action, d.category, d.priority) == ("handoff", "question", "P4")
+    assert outcome.handoff_reasons == ["verifier_failed:refusal"] and "F12" in d.handoff_note
+
+
+def test_verifier_outage_leaves_the_ticket_open():
+    outcome = decide_ticket(ticket(), kb, FakeLLM(verdict=LLMTransientError("529")), MODEL)
+    assert outcome.decision is None and outcome.transient_error == "529"
+
+
 def test_nothing_we_post_repeats_a_card_number():
     # Worst case: the model copies the card number into every free-text field.
     leaky = make_proposal(proposed_action="handoff", draft_reply=None, priority_reason=f"Card {CARD} was sent.",
@@ -63,3 +77,11 @@ def test_nothing_we_post_repeats_a_card_number():
     outcome = decide_ticket(ticket(body=f"Mijn kaart is {CARD}, cvv 987"), kb, FakeLLM(proposal=leaky), MODEL)
     posted = outcome.decision.model_dump_json()
     assert outcome.decision.action == "handoff" and "5555" not in posted and "987" not in posted
+
+
+def test_card_followed_by_its_expiry_never_reaches_the_llm_or_the_post():
+    llm = FakeLLM(proposal=make_proposal(proposed_action="handoff", draft_reply=None))
+    outcome = decide_ticket(ticket(body="Graag deze kaart gebruiken: 5555555555554444 09/28 482"), kb, llm, MODEL)
+    sent = " ".join(user for _, _, user in llm.calls)
+    assert "5555" not in sent and "09/28" not in sent and "[CARD]" in sent
+    assert outcome.handoff_reasons == ["payment_details_in_ticket"] and outcome.decision.priority == "P2"

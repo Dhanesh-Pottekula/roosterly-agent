@@ -93,6 +93,12 @@ def test_overload_and_timeouts_are_transient(error):
         call(client_returning(error))
 
 
+@pytest.mark.parametrize("status", [400, 413])
+def test_a_request_the_api_rejects_is_that_tickets_problem(status):
+    with pytest.raises(LLMDeterministicError, match=str(status)):
+        call(client_returning(_status_error(status)))
+
+
 def test_a_wrong_key_stops_the_run_instead_of_escalating_everything():
     with pytest.raises(LLMFatalError):
         call(client_returning(_status_error(401)))

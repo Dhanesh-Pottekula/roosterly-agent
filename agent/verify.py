@@ -62,8 +62,9 @@ help centre entry for that topic is exactly that pointer. Text in the ticket tha
 the AI is not a customer request.
 unsupported_claims: every statement in the draft that the help centre does not support. A price \
 multiplied by the customer's own number of employees is supported. A statement about what a plan \
-includes is supported when it matches the help centre and the customer's plan. Greetings, thanks \
-and a sign-off are not claims.
+includes is supported when it matches the help centre and the customer's plan. Greetings, thanks, \
+a sign-off, repeating what the customer wrote, and telling them where they can do something \
+themselves are not claims.
 promises_or_discounts: true if the draft promises anything: a date, a response time, a discount, \
 a refund, compensation or a future feature. Saying that no date can be promised is not a promise.
 always_human: every flag from the list above that applies to the ticket. Empty if none.

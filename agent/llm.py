@@ -16,11 +16,11 @@ class LLMTransientError(Exception):
 
 
 class LLMDeterministicError(Exception):
-    """The model refused, ran out of tokens or returned an invalid object. Retrying will not help."""
+    """The model refused this ticket or returned an invalid object. Retrying will not help."""
 
 
 class LLMFatalError(Exception):
-    """Wrong key, unknown model or a bad request. Every ticket would fail, so the run must stop."""
+    """Wrong key or unknown model. Every ticket would fail, so the run must stop."""
 
 
 class LLM(Protocol):
@@ -47,7 +47,9 @@ class LLMClient:
         except anthropic.APIStatusError as error:
             if error.status_code in (408, 409, 429) or error.status_code >= 500:
                 raise LLMTransientError(f"{error.status_code}") from error
-            raise LLMFatalError(f"{error.status_code}: {error.message}") from error
+            if error.status_code in (400, 413, 422):  # this request is the problem, e.g. a huge ticket
+                raise LLMDeterministicError(f"request_rejected_{error.status_code}") from error
+            raise LLMFatalError(f"{error.status_code}: {error.message}") from error  # wrong key or model
         except ValidationError as error:
             raise LLMDeterministicError("invalid_output") from error
 

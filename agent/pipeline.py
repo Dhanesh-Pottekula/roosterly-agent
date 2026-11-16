@@ -36,16 +36,15 @@ def decide_ticket(ticket: Ticket, kb: KnowledgeBase, llm: LLM, model: str) -> Ti
     rt = redact_ticket(ticket)
     detected = detect_language(f"{rt.subject}\n{rt.body}")
     outcome = TicketOutcome(decision=None)
+    reply_problems: list[str] = []
     try:
         proposal, outcome.usage = decide(rt, kb, llm, model)
         outcome.proposal = proposal
-        reply_problems: list[str] = []
         if proposal.proposed_action == "reply":
             language = posted_language(proposal.language, detected) or "en"
             reply_problems = check_reply(proposal.draft_reply or "", language, proposal.requests, rt, kb)
             if not reply_problems:  # the verifier costs a call, so it only sees drafts that passed
-                outcome.verdict, usage = verify_reply(rt, proposal.draft_reply, kb, llm, model)
-                outcome.usage += usage
+                reply_problems = _verify(rt, proposal.draft_reply, kb, llm, model, outcome)
     except LLMTransientError as error:
         outcome.transient_error = str(error)
         return outcome
@@ -58,6 +57,17 @@ def decide_ticket(ticket: Ticket, kb: KnowledgeBase, llm: LLM, model: str) -> Ti
     outcome.handoff_reasons = result.handoff_reasons
     outcome.decision = _without_payment_details(result.decision)
     return outcome
+
+
+def _verify(rt, draft: str, kb: KnowledgeBase, llm: LLM, model: str, outcome: TicketOutcome) -> list[str]:
+    """Run the verifier and store its verdict. If it fails, the reply is simply not verified:
+    the proposal's category, priority and note are still good, so the ticket is handed off with them."""
+    try:
+        outcome.verdict, usage = verify_reply(rt, draft, kb, llm, model)
+    except LLMDeterministicError as error:
+        return [f"verifier_failed:{error}"]
+    outcome.usage += usage
+    return []
 
 
 def is_empty(ticket: Ticket) -> bool:
