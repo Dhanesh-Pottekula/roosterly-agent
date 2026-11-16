@@ -14,7 +14,7 @@ from agent.language import detect_language
 from agent.models import RedactedTicket
 from agent.redact import contains_payment
 
-MIN_QUOTE_LENGTH = 20
+MIN_QUOTE_LENGTH = 12  # long enough to be evidence, short enough for "We read every idea."
 
 _PERCENT = re.compile(r"%|\b(procent|prozent|percent)\b", re.IGNORECASE)
 _PROMISE = re.compile(
@@ -23,10 +23,11 @@ _PROMISE = re.compile(
     r"|rabatt|erstatt|kostenlos|entschädig",
     re.IGNORECASE,
 )
+# A response time is a promise. Minutes are left out: the help centre itself says "within 10 minutes".
 _TIME_PROMISE = re.compile(
-    r"\bbinnen \d+ (uur|uren|dag|dagen|werkdag|werkdagen)\b"
-    r"|\bwithin \d+ (hours?|days?|working days?|business days?)\b"
-    r"|\binnerhalb von \d+ (stunden?|tagen?|werktagen?)\b",
+    r"\bbinnen (\d+|een|één|twee|drie|enkele) (uur|uren|dag|dagen|werkdag|werkdagen|week|weken)\b"
+    r"|\bwithin (\d+|an?|one|two|three|a few) (hours?|days?|working days?|business days?|weeks?)\b"
+    r"|\binnerhalb (von )?(\d+|einer|eines|einem|zwei|drei|weniger) (stunden?|tag(e|en|es)?|werktag(e|en|es)?|wochen?)\b",
     re.IGNORECASE,
 )
 
@@ -73,7 +74,8 @@ def _allowed_amounts(rt: RedactedTicket, kb: KnowledgeBase) -> set[Decimal]:
 
 def _quote_problem(request: Request, kb: KnowledgeBase) -> str | None:
     """Every request needs a sentence that really is in the help centre entry it names."""
-    entry = kb.entries.get(request.faq_id or "")
+    entry_id = re.search(r"F\d{2}", (request.faq_id or "").upper())  # "f10" and "F10 · Ideas" both mean F10
+    entry = kb.entries.get(entry_id.group()) if entry_id else None
     if entry is None or not request.faq_quote:
         return "request_without_faq_answer"
     quote = _normalise(request.faq_quote)
@@ -84,7 +86,7 @@ def _quote_problem(request: Request, kb: KnowledgeBase) -> str | None:
 
 def _normalise(text: str) -> str:
     """Make quote matching forgiving about typography, never about wording."""
-    text = text.replace("->", "→").replace("=>", "→")
+    text = re.sub(r"\s*(->|=>|>|→)\s*", " → ", text)
     text = re.sub(r"[“”„]", '"', text)
     text = re.sub(r"[‘’]", "'", text)
     text = re.sub(r"€\s+", "€", text)

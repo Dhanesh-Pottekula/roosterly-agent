@@ -62,6 +62,9 @@ def test_draft_in_the_wrong_language_fails():
     ("Je krijgt korting.", "promise_in_draft"),
     ("De eerste maand is gratis.", "promise_in_draft"),
     ("We reageren binnen 24 uur.", "promise_in_draft"),
+    ("We reageren binnen een week.", "promise_in_draft"),
+    ("Dat kost 999 € per maand.", "amount_not_in_help_centre"),
+    ("Reset het via roosterly.help/reset.", "address_not_in_help_centre"),
     (f"Je kaart {CARD} is aangepast.", "payment_details_in_draft"),
 ])
 def test_unsafe_content_is_caught(extra, problem):
@@ -100,6 +103,7 @@ def test_price_times_the_customers_own_number_is_allowed():
     (Request(description_en="x", faq_id="F99", faq_quote=F12_QUOTE), "request_without_faq_answer"),
     (Request(description_en="x", faq_id="F12", faq_quote="Roosterly also integrates with every payroll system."), "faq_quote_not_in_help_centre"),
     (Request(description_en="x", faq_id="F05", faq_quote="Plus"), "faq_quote_not_in_help_centre"),
+    (Request(description_en="x", faq_id="F05", faq_quote="Plus plan."), "faq_quote_not_in_help_centre"),
     (Request(description_en="x", faq_id="F05", faq_quote=F12_QUOTE), "faq_quote_not_in_help_centre"),
 ])
 def test_missing_or_invented_quotes_fail(request_, problem):
@@ -109,6 +113,30 @@ def test_missing_or_invented_quotes_fail(request_, problem):
 def test_quote_matching_forgives_typography_only():
     typed = "add one under instellingen -> vestigingen ->  nieuwe vestiging (settings -> locations -> new location)"
     assert problems(DUTCH_DRAFT, requests=[Request(description_en="x", faq_id="F07", faq_quote=typed)]) == []
+
+
+@pytest.mark.parametrize("faq_id, quote", [
+    ("F10", "We read every idea."),  # the shortest sentences in the help centre are still evidence
+    ("F05", "Prices exclude VAT."),
+    ("f10", "We read every idea."),
+    ("F10 · Ideas and feature requests", "We read every idea."),
+    ("F07", "Add one under Instellingen > Vestigingen > Nieuwe vestiging (Settings > Locations > New location)."),
+])
+def test_real_help_centre_sentences_pass_however_the_model_writes_them(faq_id, quote):
+    assert problems(DUTCH_DRAFT, requests=[Request(description_en="x", faq_id=faq_id, faq_quote=quote)]) == []
+
+
+def test_promise_patterns_in_other_languages():
+    quote = [Request(description_en="x", faq_id="F12", faq_quote=F12_QUOTE)]
+    assert "promise_in_draft" in problems("Guten Tag, wir antworten innerhalb 24 Stunden auf Ihre Frage zur App.", language="de", requests=quote)
+    assert "promise_in_draft" in problems("Hello, we will get back to you within one business day about the app.", language="en", requests=quote)
+
+
+def test_very_long_unbroken_text_does_not_stall_language_detection():
+    import time
+    started = time.monotonic()
+    detect_language("x" * 40_000 + " → menu")
+    assert time.monotonic() - started < 2
 
 
 def test_two_requests_with_one_unanswered_fail():

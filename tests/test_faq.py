@@ -14,7 +14,7 @@ def test_all_twelve_entries_are_parsed():
 
 
 def test_allow_lists_come_from_the_help_centre():
-    assert {"roadmap.roosterly.nl", "status.roosterly.nl", "app.roosterly.nl/login", "loket.nl"} <= kb.urls
+    assert kb.urls == {"roadmap.roosterly.nl", "status.roosterly.nl", "app.roosterly.nl/login", "app.roosterly.nl", "loket.nl"}
     assert kb.euro_amounts == {Decimal(4), Decimal(6)}
     assert "always go to a human" in kb.rules_text
 
@@ -22,7 +22,10 @@ def test_allow_lists_come_from_the_help_centre():
 def test_urls_and_amounts_are_normalised():
     assert find_urls("Kijk op https://Status.roosterly.nl/. Klaar.Volgende zin") == {"status.roosterly.nl"}
     assert find_urls("www.roosterly.nl en hulp@voorbeeld.com") == {"roosterly.nl", "voorbeeld.com"}
+    assert find_urls("“app.roosterly.nl/login” of **STATUS.ROOSTERLY.NL** of [x](roadmap.roosterly.nl)") == {"app.roosterly.nl/login", "status.roosterly.nl", "roadmap.roosterly.nl"}
+    assert find_urls("ga naar roosterly.help/reset of bit.ly/x") == {"roosterly.help/reset", "bit.ly/x"}
     assert find_euro_amounts("€150, € 1.250,00, 72 euro, 90,- euro en EUR 4.50") == {Decimal(150), Decimal(1250), Decimal(72), Decimal(90), Decimal("4.5")}
+    assert find_euro_amounts("999 €, 998€, 997 euros, euro 996, €  995, €1,200 and €6,000.50") == {Decimal(n) for n in ("999", "998", "997", "996", "995", "1200", "6000.5")}
 
 
 def test_ordinary_words_are_not_mistaken_for_addresses_or_prices():
