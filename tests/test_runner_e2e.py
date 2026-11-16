@@ -1,5 +1,6 @@
 """End to end against the fake helpdesk: every ticket handled exactly once, whatever goes wrong."""
 
+import contextlib
 import json
 import random
 
@@ -9,9 +10,8 @@ import pytest
 from agent.decide import Proposal
 from agent.faq import load_kb
 from agent.helpdesk import HelpdeskClient, TransientExhausted
-from agent.llm import LLMFatalError, LLMTransientError
+from agent.llm import LLMDeterministicError, LLMFatalError, LLMTransientError
 from agent.runner import Runner
-from agent.verify import Verdict
 from tests.fakes import CARD, SETTINGS, FakeClock, FakeHelpdesk, FakeLLM, make_proposal, make_tickets
 
 kb = load_kb()
@@ -95,9 +95,15 @@ def test_one_log_line_per_ticket_without_customer_text_or_payment_details(tmp_pa
 
     lines = log_lines(tmp_path, summary)
     assert [line["ticket_id"] for line in lines] == [f"X{i:03d}" for i in range(1, 6)]
-    assert all(line["action"] == "handoff" and line["handoff_reasons"] == ["payment_details_in_ticket"] for line in lines)
+    assert all(
+        line["action"] == "handoff" and line["handoff_reasons"] == ["payment_details_in_ticket"] for line in lines
+    )
     everything_written = "".join(path.read_text() for path in tmp_path.iterdir())
-    assert "5555" not in everything_written and "Android" not in everything_written and "test-key" not in everything_written
+    assert (
+        "5555" not in everything_written
+        and "Android" not in everything_written
+        and "test-key" not in everything_written
+    )
     posted = json.dumps(fake.handled)
     assert "5555" not in posted and "987" not in posted
     assert (tmp_path / "spend.jsonl").exists() and (tmp_path / f"{summary.run_id}.summary.json").exists()
@@ -119,7 +125,9 @@ def test_rejected_decision_falls_back_to_a_handoff(tmp_path):
     assert fake.handled["X001"]["action"] == "handoff" and list(fake.handled) == ["X001"]
     assert summary.status["open_tickets"] == 0
     line = log_lines(tmp_path, summary)[0]
-    assert line["outcome"] == "posted" and line["action"] == "handoff" and line["validation_problems"] == ["draft_reply"]
+    assert (
+        line["outcome"] == "posted" and line["action"] == "handoff" and line["validation_problems"] == ["draft_reply"]
+    )
 
 
 def test_one_broken_ticket_does_not_block_the_queue(tmp_path):
@@ -149,7 +157,11 @@ def test_command_line_reports_setup_problems_without_a_traceback(monkeypatch, ca
 
     for var in ("HELPDESK_URL", "HELPDESK_API_KEY", "CANDIDATE_EMAIL", "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setattr(cli, "load_settings", lambda **_: (_ for _ in ()).throw(cli.ConfigError("Missing environment variables: HELPDESK_API_KEY")))
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda **_: (_ for _ in ()).throw(cli.ConfigError("Missing environment variables: HELPDESK_API_KEY")),
+    )
     monkeypatch.setattr("sys.argv", ["agent", "status"])
     assert cli.main() == 2
     assert "HELPDESK_API_KEY" in capsys.readouterr().err
@@ -183,10 +195,8 @@ def test_chaos_no_ticket_is_ever_answered_twice(tmp_path, seed):
 
     fake._post = chaotic_post
     for _ in range(40):
-        try:
+        with contextlib.suppress(KeyboardInterrupt, TransientExhausted):
             Runner(SETTINGS, client, FakeLLM(), kb, log_dir=tmp_path).run()
-        except (KeyboardInterrupt, TransientExhausted):
-            pass
         if len(fake.handled) == 30:
             break
     assert len(fake.handled) == 30 and fake.statuses[409] == 0 and fake.statuses[429] == 0
@@ -213,11 +223,37 @@ def test_own_post_confirmed_late_is_logged_with_its_decision(tmp_path):
     assert (line["outcome"], line["action"], line["priority"]) == ("skipped_handled", "reply", "P4")
 
 
-def test_llm_rejecting_one_ticket_does_not_stop_the_others(tmp_path):
-    from agent.llm import LLMDeterministicError
-
-    client, fake = setup(count=3)
-    fake.tickets["X002"]["body"] = "te groot " * 5
-    llm = FakeLLM(proposal=lambda user: LLMDeterministicError("request_rejected_413") if "te groot" in user else make_proposal())
+def test_model_refusing_one_ticket_hands_it_off_and_carries_on(tmp_path):
+    client, fake = setup(count=5)
+    fake.tickets["X002"]["body"] = "weiger dit"
+    llm = FakeLLM(proposal=lambda user: LLMDeterministicError("refusal") if "weiger dit" in user else make_proposal())
     summary = Runner(SETTINGS, client, llm, kb, log_dir=tmp_path).run()
-    assert len(fake.handled) == 3 and fake.handled["X002"]["action"] == "handoff" and summary.left_open == 0
+    assert len(fake.handled) == 5 and fake.handled["X002"]["action"] == "handoff" and summary.left_open == 0
+
+
+def test_model_failing_on_every_ticket_stops_the_run_instead_of_escalating_the_queue(tmp_path):
+    client, fake = setup(count=30)
+    with pytest.raises(LLMFatalError, match="in a row"):
+        Runner(SETTINGS, client, FakeLLM(proposal=LLMDeterministicError("invalid_output")), kb, log_dir=tmp_path).run()
+    assert len(fake.handled) == 2  # stopped before the third; nothing like 30 blind handoffs
+
+
+def test_oversized_ticket_goes_to_a_human_without_an_llm_call(tmp_path):
+    client, fake = setup(count=2)
+    fake.tickets["X001"]["body"] = "lang " * 5000
+    llm = FakeLLM()
+    Runner(SETTINGS, client, llm, kb, log_dir=tmp_path).run()
+    assert (
+        fake.handled["X001"]["action"] == "handoff"
+        and fake.handled["X002"]["action"] == "reply"
+        and llm.count(Proposal) == 1
+    )
+
+
+def test_log_line_of_a_retried_ticket_has_no_stale_error(tmp_path):
+    client, fake = setup(count=1)
+    failures = iter([LLMTransientError("overloaded")])
+    llm = FakeLLM(proposal=lambda user: next(failures, None) or make_proposal())
+    summary = Runner(SETTINGS, client, llm, kb, log_dir=tmp_path).run()
+    line = log_lines(tmp_path, summary)[0]
+    assert line["outcome"] == "posted" and "llm_error" not in line

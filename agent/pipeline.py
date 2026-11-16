@@ -1,6 +1,6 @@
 """One ticket in, one decision out. No helpdesk calls here, so the eval can run this offline.
 
-    redact -> detect language -> propose (LLM) -> check + verify (replies only) -> policy gate -> redact
+redact -> detect language -> propose (LLM) -> check + verify (replies only) -> policy gate -> redact
 """
 
 import re
@@ -16,6 +16,7 @@ from agent.policy import apply_policy, posted_language
 from agent.redact import redact_payment, redact_ticket
 from agent.verify import Verdict, verify_reply
 
+MAX_TICKET_CHARS = 20_000  # far beyond any real ticket; longer ones go straight to a human
 _ONLY_REPLY_PREFIXES = re.compile(r"^\s*((re|fw|fwd|aw|antw)\s*:\s*)*$", re.IGNORECASE)
 
 
@@ -35,6 +36,10 @@ def decide_ticket(ticket: Ticket, kb: KnowledgeBase, llm: LLM, model: str) -> Ti
 
     rt = redact_ticket(ticket)
     detected = detect_language(f"{rt.subject}\n{rt.body}")
+    if len(ticket.subject) + len(ticket.body) > MAX_TICKET_CHARS:
+        return TicketOutcome(
+            _handoff_unread("ticket too long for automatic triage", detected), handoff_reasons=["ticket_too_long"]
+        )
     outcome = TicketOutcome(decision=None)
     reply_problems: list[str] = []
     try:
@@ -50,7 +55,7 @@ def decide_ticket(ticket: Ticket, kb: KnowledgeBase, llm: LLM, model: str) -> Ti
         return outcome
     except LLMDeterministicError as error:
         outcome.handoff_reasons = [f"triage_failed:{error}"]
-        outcome.decision = _handoff_after_failure(str(error), detected)
+        outcome.decision = _handoff_unread(f"automatic triage failed: {error}", detected)
         return outcome
 
     result = apply_policy(rt, proposal, detected, reply_problems, outcome.verdict)
@@ -78,28 +83,38 @@ def is_empty(ticket: Ticket) -> bool:
 def _close_empty() -> Decision:
     # Nothing to detect a language from; most customers write Dutch.
     return Decision(
-        action="close", language="nl", category="other", priority="P4",
-        reason="Empty ticket: no subject and no body to act on.", confidence=0.95,
+        action="close",
+        language="nl",
+        category="other",
+        priority="P4",
+        reason="Empty ticket: no subject and no body to act on.",
+        confidence=0.95,
     )
 
 
-def _handoff_after_failure(failure: str, detected: str) -> Decision:
-    """The model refused or returned nothing usable. A person reads the ticket instead."""
+def _handoff_unread(why: str, detected: str) -> Decision:
+    """The agent could not assess this ticket, so a person reads it instead."""
     return Decision(
-        action="handoff", language=detected if detected != "unknown" else "nl",
-        category="other", priority="P3", confidence=0.3,
-        reason=f"Automatic triage failed ({failure}), so a human must read this ticket. Priority not assessed.",
-        handoff_note=f"Automatic triage failed ({failure}). Please read the original ticket; nothing was sent to the customer.",
+        action="handoff",
+        language=detected if detected != "unknown" else "nl",
+        category="other",
+        priority="P3",
+        confidence=0.3,
+        reason=f"Not assessed ({why}), so a human must read this ticket. Priority is a placeholder.",
+        handoff_note=f"Not assessed: {why}. Please read the original ticket; nothing was sent to the customer.",
     )
 
 
 def _without_payment_details(decision: Decision) -> Decision:
     """Last line of defence: nothing we post may repeat a card number or IBAN."""
+
     def clean(text: str | None) -> str | None:
         return redact_payment(text)[0] if text else text
 
-    return decision.model_copy(update={
-        "reason": clean(decision.reason),
-        "draft_reply": clean(decision.draft_reply),
-        "handoff_note": clean(decision.handoff_note),
-    })
+    return decision.model_copy(
+        update={
+            "reason": clean(decision.reason),
+            "draft_reply": clean(decision.draft_reply),
+            "handoff_note": clean(decision.handoff_note),
+        }
+    )

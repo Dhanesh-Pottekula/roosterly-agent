@@ -20,7 +20,7 @@ class LLMDeterministicError(Exception):
 
 
 class LLMFatalError(Exception):
-    """Wrong key or unknown model. Every ticket would fail, so the run must stop."""
+    """Wrong key, unknown model or a rejected request. Every ticket would fail, so the run must stop."""
 
 
 class LLM(Protocol):
@@ -31,7 +31,9 @@ class LLMClient:
     def __init__(self, settings: Settings):
         self._client = anthropic.Anthropic(api_key=settings.llm_api_key, max_retries=3, timeout=60.0)
 
-    def complete_json(self, system: str, user: str, schema: type[T], model: str, max_tokens: int = 6000) -> tuple[T, Usage]:
+    def complete_json(
+        self, system: str, user: str, schema: type[T], model: str, max_tokens: int = 6000
+    ) -> tuple[T, Usage]:
         """Ask for an object of type `schema`. The system prompt is the stable part, so it is cached."""
         try:
             response = self._client.messages.parse(
@@ -47,9 +49,8 @@ class LLMClient:
         except anthropic.APIStatusError as error:
             if error.status_code in (408, 409, 429) or error.status_code >= 500:
                 raise LLMTransientError(f"{error.status_code}") from error
-            if error.status_code in (400, 413, 422):  # this request is the problem, e.g. a huge ticket
-                raise LLMDeterministicError(f"request_rejected_{error.status_code}") from error
-            raise LLMFatalError(f"{error.status_code}: {error.message}") from error  # wrong key or model
+            # Wrong key, wrong model or a request the API rejects: the next ticket would fail too.
+            raise LLMFatalError(f"{error.status_code}: {error.message}") from error
         except ValidationError as error:
             raise LLMDeterministicError("invalid_output") from error
 

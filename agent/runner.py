@@ -8,7 +8,7 @@ open tickets, so no customer gets two answers.
 import time
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 from agent.config import Settings
@@ -19,6 +19,8 @@ from agent.models import Decision, Usage
 from agent.pipeline import TicketOutcome, decide_ticket
 from agent.runlog import RunLogger, append_spend, ticket_fields, utc_now
 
+# If the model fails on this many tickets in a row, something is wrong with the setup, not the tickets.
+MAX_TRIAGE_FAILURES_IN_A_ROW = 3
 # Outcomes that leave the ticket open. They get a second try in the same run, then a non-zero exit.
 LEFT_OPEN = {"left_open_llm", "failed_transient", "failed_error"}
 
@@ -34,14 +36,22 @@ class RunSummary:
 
 
 class Runner:
-    def __init__(self, settings: Settings, helpdesk: HelpdeskClient, llm: LLM, kb: KnowledgeBase,
-                 dry_run: bool = False, log_dir: str | Path = "logs"):
+    def __init__(
+        self,
+        settings: Settings,
+        helpdesk: HelpdeskClient,
+        llm: LLM,
+        kb: KnowledgeBase,
+        dry_run: bool = False,
+        log_dir: str | Path = "logs",
+    ):
         self.settings, self.helpdesk, self.llm, self.kb = settings, helpdesk, llm, kb
         self.dry_run = dry_run
         self.log_dir = log_dir
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         self.log = RunLogger(f"dry-{stamp}" if dry_run else stamp, log_dir)
         self.usage = Usage()
+        self.triage_failures_in_a_row = 0
 
     def run(self, limit: int | None = None) -> RunSummary:
         self.helpdesk.status(send_name=True)
@@ -61,9 +71,10 @@ class Runner:
             else:
                 finish(record)  # logged as soon as the outcome is known
         for first in first_attempts:
-            # Keep the first attempt's decision fields: if our post did land after all, the
-            # second attempt only sees "already handled" and would log nothing about it.
-            finish(first | self._handle(first["ticket_id"]))
+            second = self._handle(first["ticket_id"])
+            # If our own post did land after all, the second attempt only sees "already handled".
+            # Keep what the first attempt decided, so the log still says what was posted.
+            finish(first | second if second["outcome"] == "skipped_handled" else second)
 
         return self._summarise(len(ticket_ids), dict(outcomes))
 
@@ -81,6 +92,7 @@ class Runner:
             else:
                 result = decide_ticket(ticket, self.kb, self.llm, self.settings.llm_model)
                 self.usage += result.usage
+                self._stop_if_the_model_keeps_failing(result)
                 record |= {"received_at": ticket.received_at} | ticket_fields(result, self.settings.llm_model)
                 record |= self._deliver(ticket_id, result)
         except TransientExhausted:
@@ -92,6 +104,15 @@ class Runner:
         record["http_attempts"] = self.helpdesk.attempts - attempts_before
         record["duration_ms"] = round((time.monotonic() - started) * 1000)
         return record
+
+    def _stop_if_the_model_keeps_failing(self, result: TicketOutcome) -> None:
+        """One refused ticket is handed off. Several in a row would hand off the whole queue: stop instead."""
+        failed = any(reason.startswith("triage_failed") for reason in result.handoff_reasons)
+        self.triage_failures_in_a_row = self.triage_failures_in_a_row + 1 if failed else 0
+        if self.triage_failures_in_a_row >= MAX_TRIAGE_FAILURES_IN_A_ROW:
+            raise LLMFatalError(
+                f"the model failed on {MAX_TRIAGE_FAILURES_IN_A_ROW} tickets in a row ({result.handoff_reasons[0]})"
+            )
 
     def _deliver(self, ticket_id: str, result: TicketOutcome) -> dict:
         """Post the decision, unless there is none or this is a dry run."""
@@ -117,23 +138,34 @@ class Runner:
             cost_usd=self.usage.cost_usd(model),
             status=self.helpdesk.status(),
         )
-        self.log.write_summary({
-            "run_id": summary.run_id, "model": model, "tickets": ticket_count, "outcomes": outcomes,
-            "tokens_in": self.usage.input_tokens, "tokens_out": self.usage.output_tokens,
-            "cache_read": self.usage.cache_read_tokens, "cache_write": self.usage.cache_write_tokens,
-            "cost_usd": round(summary.cost_usd, 6), "helpdesk_status": summary.status,
-        })
+        self.log.write_summary(
+            {
+                "run_id": summary.run_id,
+                "model": model,
+                "tickets": ticket_count,
+                "outcomes": outcomes,
+                "tokens_in": self.usage.input_tokens,
+                "tokens_out": self.usage.output_tokens,
+                "cache_read": self.usage.cache_read_tokens,
+                "cache_write": self.usage.cache_write_tokens,
+                "cost_usd": round(summary.cost_usd, 6),
+                "helpdesk_status": summary.status,
+            }
+        )
         append_spend("dry-run" if self.dry_run else "run", summary.run_id, self.usage, model, self.log_dir)
         return summary
 
 
 def _fallback_handoff(rejected: Decision) -> Decision:
     return Decision(
-        action="handoff", language=rejected.language, category=rejected.category,
-        priority=rejected.priority, confidence=0.3,
+        action="handoff",
+        language=rejected.language,
+        category=rejected.category,
+        priority=rejected.priority,
+        confidence=0.3,
         reason="The helpdesk rejected the automatic decision, so a human must handle this ticket.",
         handoff_note="The agent's decision was rejected by the helpdesk. Please read the original ticket; "
-                     "nothing was sent to the customer.",
+        "nothing was sent to the customer.",
     )
 
 

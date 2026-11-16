@@ -24,10 +24,17 @@ def test_good_reply_goes_through_proposer_checks_and_verifier():
     assert outcome.usage.input_tokens == 2000  # both calls are counted
 
 
-@pytest.mark.parametrize("subject, body, empty", [
-    ("Re:", "", True), ("", "  \n", True), ("FW: re: ", "", True), ("Antw:", "", True),
-    ("Re: factuur", "", False), ("Re:", "Al nieuws?", False),
-])
+@pytest.mark.parametrize(
+    "subject, body, empty",
+    [
+        ("Re:", "", True),
+        ("", "  \n", True),
+        ("FW: re: ", "", True),
+        ("Antw:", "", True),
+        ("Re: factuur", "", False),
+        ("Re:", "Al nieuws?", False),
+    ],
+)
 def test_is_empty(subject, body, empty):
     assert is_empty(ticket(body=body, subject=subject)) is empty
 
@@ -47,6 +54,7 @@ def test_transient_llm_error_leaves_the_ticket_undecided():
 def test_refusal_becomes_a_handoff_not_a_crash():
     outcome = decide_ticket(ticket(), kb, FakeLLM(proposal=LLMDeterministicError("refusal")), MODEL)
     assert outcome.decision.action == "handoff" and outcome.handoff_reasons == ["triage_failed:refusal"]
+    assert "refusal" in outcome.decision.handoff_note
 
 
 def test_verifier_is_skipped_when_the_deterministic_checks_already_failed():
@@ -72,8 +80,13 @@ def test_verifier_outage_leaves_the_ticket_open():
 
 def test_nothing_we_post_repeats_a_card_number():
     # Worst case: the model copies the card number into every free-text field.
-    leaky = make_proposal(proposed_action="handoff", draft_reply=None, priority_reason=f"Card {CARD} was sent.",
-                          summary_en=f"Wants to pay with {CARD}.", handoff_note=f"Customer card: {CARD}, cvv 987.")
+    leaky = make_proposal(
+        proposed_action="handoff",
+        draft_reply=None,
+        priority_reason=f"Card {CARD} was sent.",
+        summary_en=f"Wants to pay with {CARD}.",
+        handoff_note=f"Customer card: {CARD}, cvv 987.",
+    )
     outcome = decide_ticket(ticket(body=f"Mijn kaart is {CARD}, cvv 987"), kb, FakeLLM(proposal=leaky), MODEL)
     posted = outcome.decision.model_dump_json()
     assert outcome.decision.action == "handoff" and "5555" not in posted and "987" not in posted
@@ -81,7 +94,7 @@ def test_nothing_we_post_repeats_a_card_number():
 
 def test_card_followed_by_its_expiry_never_reaches_the_llm_or_the_post():
     llm = FakeLLM(proposal=make_proposal(proposed_action="handoff", draft_reply=None))
-    outcome = decide_ticket(ticket(body="Graag deze kaart gebruiken: 5555555555554444 09/28 482"), kb, llm, MODEL)
+    outcome = decide_ticket(ticket(body="Graag deze kaart gebruiken: 5555555555554444 03/31 482"), kb, llm, MODEL)
     sent = " ".join(user for _, _, user in llm.calls)
-    assert "5555" not in sent and "09/28" not in sent and "[CARD]" in sent
+    assert "5555" not in sent and "03/31" not in sent and "[CARD]" in sent
     assert outcome.handoff_reasons == ["payment_details_in_ticket"] and outcome.decision.priority == "P2"
