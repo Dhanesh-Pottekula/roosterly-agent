@@ -32,16 +32,21 @@ def load_cases(eval_dir: Path = EVAL_DIR) -> list[Case]:
     adversarial = [json.loads(line) for line in lines if line.strip()]
     return [
         Case(
-            id=item["id"], group=group, label=item["label"],
-            must_not_contain=tuple(item.get("must_not_contain", ())),
-            ticket={k: v for k, v in item.items() if k not in ("label", "must_not_contain")},
+            id=item["id"],
+            group=group,
+            label=item["label"],
+            never_post=tuple(item.get("never_post", ())),
+            never_reply=tuple(item.get("never_reply", ())),
+            ticket={k: v for k, v in item.items() if k not in ("label", "never_post", "never_reply")},
         )
         for group, items in (("examples", examples), ("adversarial", adversarial))
         for item in items
     ]
 
 
-def run_once(cases: list[Case], kb: KnowledgeBase, llm: LLM, model: str, judge_model: str | None) -> tuple[list[CaseResult], Usage]:
+def run_once(
+    cases: list[Case], kb: KnowledgeBase, llm: LLM, model: str, judge_model: str | None
+) -> tuple[list[CaseResult], Usage]:
     """Decide every case once. Returns the results and what the judge cost."""
     results, judge_usage = [], Usage()
     for case in cases:
@@ -50,7 +55,9 @@ def run_once(cases: list[Case], kb: KnowledgeBase, llm: LLM, model: str, judge_m
         faq_id = expected_faq_id(case.label)
         if judge_model and decision and decision.action == "reply" and faq_id in kb.entries:
             question = f"{case.ticket.get('subject', '')}\n{case.ticket.get('body', '')}"
-            result.quality, usage = judge_reply(question, kb.entries[faq_id].text, decision.draft_reply, llm, judge_model)
+            result.quality, usage = judge_reply(
+                question, kb.entries[faq_id].text, decision.draft_reply, llm, judge_model
+            )
             judge_usage += usage
         results.append(result)
     return results, judge_usage
@@ -65,7 +72,9 @@ def summarise(runs: list[list[CaseResult]], model: str) -> dict:
         for metric in per_run[0]:
             values = [scores[metric] for scores in per_run if scores[metric] is not None]
             summary[group][metric] = (
-                {"mean": round(sum(values) / len(values), 4), "min": min(values), "max": max(values)} if values else None
+                {"mean": round(sum(values) / len(values), 4), "min": min(values), "max": max(values)}
+                if values
+                else None
             )
     return summary
 
@@ -75,16 +84,18 @@ def case_details(results: list[CaseResult]) -> list[dict]:
     details = []
     for result in results:
         outcome, decision = result.outcome, result.outcome.decision
-        details.append({
-            "id": result.case.id,
-            "expected": {k: result.case.label[k] for k in ("language", "category", "priority", "action")},
-            "got": decision.model_dump(exclude_none=True) if decision else None,
-            "draft_in_english": outcome.verdict.translation_en if outcome.verdict else None,
-            "handoff_reasons": outcome.handoff_reasons,
-            "mismatches": result.mismatches,
-            "forbidden_text_posted": result.forbidden_text_posted,
-            "judge_quality": result.quality,
-        })
+        details.append(
+            {
+                "id": result.case.id,
+                "expected": {k: result.case.label[k] for k in ("language", "category", "priority", "action")},
+                "got": decision.model_dump(exclude_none=True) if decision else None,
+                "draft_in_english": outcome.verdict.translation_en if outcome.verdict else None,
+                "handoff_reasons": outcome.handoff_reasons,
+                "mismatches": result.mismatches,
+                "forbidden_text_posted": result.forbidden_text_posted,
+                "judge_quality": result.quality,
+            }
+        )
     return details
 
 
@@ -92,13 +103,20 @@ def to_markdown(tag: str, model: str, runs: list[list[CaseResult]], summary: dic
     def cell(stats: dict | None) -> str:
         if stats is None:
             return "n/a"
-        return f"{stats['mean']:g}" if stats["min"] == stats["max"] else f"{stats['mean']:g} ({stats['min']:g}-{stats['max']:g})"
+        return (
+            f"{stats['mean']:g}"
+            if stats["min"] == stats["max"]
+            else f"{stats['mean']:g} ({stats['min']:g}-{stats['max']:g})"
+        )
 
     lines = [
-        f"# Eval: {tag}", "",
+        f"# Eval: {tag}",
+        "",
         f"Model `{model}`, {len(runs)} run(s). Mean over runs, with min-max when runs differ.",
-        "The 10 examples are a development set, not a held-out test: we looked at them while building.", "",
-        "| Metric | Examples (Nordavo labels) | Adversarial (own labels) |", "|---|---|---|",
+        "The 10 examples are a development set, not a held-out test: we looked at them while building.",
+        "",
+        "| Metric | Examples (Nordavo labels) | Adversarial (own labels) |",
+        "|---|---|---|",
     ]
     for metric in summary["examples"]:
         name = f"**{metric}**" if metric in SAFETY_METRICS else metric
@@ -122,7 +140,9 @@ def main() -> None:
     settings = load_settings()
     if args.refresh or not (EVAL_DIR / "examples.json").exists():
         examples = HelpdeskClient(settings).examples()
-        (EVAL_DIR / "examples.json").write_text(json.dumps({"examples": examples}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (EVAL_DIR / "examples.json").write_text(
+            json.dumps({"examples": examples}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
 
     kb, llm, cases = load_kb(), LLMClient(settings), load_cases()
     judge_model = settings.eval_judge_model if args.judge else None
@@ -135,7 +155,21 @@ def main() -> None:
     summary = summarise(runs, settings.llm_model)
     stem = EVAL_DIR / "results" / f"{date.today().isoformat()}_{args.tag}"
     stem.parent.mkdir(exist_ok=True)
-    stem.with_suffix(".json").write_text(json.dumps({"tag": args.tag, "model": settings.llm_model, "runs": args.runs, "summary": summary, "last_run": case_details(runs[-1])}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    stem.with_suffix(".json").write_text(
+        json.dumps(
+            {
+                "tag": args.tag,
+                "model": settings.llm_model,
+                "runs": args.runs,
+                "summary": summary,
+                "last_run": case_details(runs[-1]),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     report = to_markdown(args.tag, settings.llm_model, runs, summary)
     stem.with_suffix(".md").write_text(report, encoding="utf-8")
     print(report)

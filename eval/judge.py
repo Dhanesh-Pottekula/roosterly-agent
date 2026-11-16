@@ -30,7 +30,11 @@ class Grade(BaseModel):
 
 def judge_reply(question: str, faq_entry: str, draft: str, llm: LLM, model: str) -> tuple[float | None, Usage]:
     """Mean of correctness and completeness, or None if the judge could not grade."""
-    user = f"<question>\n{question}\n</question>\n\n<help_centre_entry>\n{faq_entry}\n</help_centre_entry>\n\n<reply>\n{draft}\n</reply>"
+    user = (
+        f"<question>\n{question}\n</question>\n\n"
+        f"<help_centre_entry>\n{faq_entry}\n</help_centre_entry>\n\n"
+        f"<reply>\n{draft}\n</reply>"
+    )
     try:
         grade, usage = llm.complete_json(JUDGE_PROMPT, user, Grade, model)
     except (LLMTransientError, LLMDeterministicError):
