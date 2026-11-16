@@ -11,7 +11,7 @@ cp .env.example .env                                  # fill in the keys and you
 python -m agent run                                   # handle every open ticket (add --dry-run to post nothing)
 python -m agent status                                # open / handled counts
 python -m eval.run_eval --tag baseline --runs 3 --judge
-pytest                                                # 175 tests, no network
+pytest                                                # 238 tests, no network
 ```
 
 ## Decisions
@@ -30,11 +30,11 @@ pytest                                                # 175 tests, no network
 
 - **503**: nothing was saved, so retry with exponential backoff and jitter (8 tries).
 - **429**: requests are spaced at 4 per second, so it should not happen; if it does, wait `Retry-After`.
-- **409**: never retried. It is logged as `already_handled`. In 150 randomised failure runs against a fake helpdesk it never occurred.
+- **409**: never retried. It is logged as `already_handled`. A randomised failure test (503s, lost responses, crashes; 25 seeds) never produces one.
 - **Timeout or other 5xx on a POST**: the write may have landed. The agent reads the ticket back and posts again only if it is still open.
-- **Crash**: run the same command again. Tests inject a crash after 7 posts and check that no ticket gets two answers.
+- **Crash**: run the same command again. Tests inject crashes and check that no ticket gets two answers. A kill in the instant between a post and its log write loses that log line, never the answer.
 - **LLM outage or a bug on one ticket**: the ticket stays open, is retried once, and the run exits non-zero; the rest of the queue continues. A refusal becomes a handoff.
-- **Security**: keys only from the environment; ticket text is wrapped as data and cannot raise its own priority; the model has no tools; payment details never reach the model, a reply, a note or a log; logs hold codes, not customer text.
+- **Security**: keys only from the environment; ticket text is wrapped as data, and text aimed at the AI is spotted by a pattern as well as by the model, so a ticket cannot talk its priority up; the model has no tools; card numbers and IBANs are redacted by checksum before the model sees the ticket and again on everything posted or logged (an IBAN with a typo is not recognised); logs hold codes, not customer text.
 
 ## Eval and fix
 
