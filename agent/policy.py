@@ -5,6 +5,7 @@ a ticket towards a human: nothing here turns a handoff into a reply. To follow a
 read `choose_action` from top to bottom; the first rule that matches wins.
 """
 
+import re
 from dataclasses import dataclass
 
 from agent.checks import check_note
@@ -29,6 +30,16 @@ EXPLANATIONS = {
 }
 
 
+# Text aimed at the reader's AI rather than at the support team. The model is asked to flag this
+# too; this pattern is the part that cannot be talked out of it.
+_ADDRESSES_THE_AI = re.compile(
+    r"\b(ai|chatbot|language model|taalmodel|sprachmodell)\b"  # not "assistant": that is a job title
+    r"|system ?(message|prompt)|systeembericht|systemnachricht"
+    r"|(negeer|ignore|ignoriere|vergeet|forget|vergiss)\b.{0,40}(instructi|regels|rules|anweisung|regeln)",
+    re.IGNORECASE,
+)
+
+
 @dataclass(frozen=True)
 class Facts:
     """What we know about a ticket before choosing an action. Settled first, so no rule can change it."""
@@ -36,7 +47,8 @@ class Facts:
     flags: list[RuleFlag]  # always-human rules, from the proposer or the verifier
     language: Language | None  # None: not clearly Dutch, English or German
     priority: Priority
-    manipulated: bool  # text aimed at the AI plus a high priority that no rule explains
+    instructed: bool  # the ticket contains text aimed at the AI
+    manipulated: bool  # ... and asks for a high priority that no client rule explains
 
 
 @dataclass(frozen=True)
@@ -53,11 +65,13 @@ def apply_policy(
     verdict: Verdict | None,
 ) -> PolicyResult:
     flags = sorted(set(p.rule_flags) | set(verdict.always_human if verdict else []))
-    manipulated = p.contains_instructions_to_ai and not flags and p.priority in ("P1", "P2")
+    instructed = p.contains_instructions_to_ai or bool(_ADDRESSES_THE_AI.search(f"{rt.subject}\n{rt.body}"))
+    manipulated = instructed and not flags and p.priority in ("P1", "P2")
     facts = Facts(
         flags=flags,
         language=posted_language(p.language, detected_language),
         priority=posted_priority(p, flags, manipulated, rt.had_payment),
+        instructed=instructed,
         manipulated=manipulated,
     )
     action, reasons = choose_action(rt, p, facts, detected_language, reply_problems, verdict)
@@ -66,10 +80,14 @@ def apply_policy(
 
 
 def posted_language(proposed: str, detected: str) -> Language | None:
-    """The language we post: the detector's when it is confident, otherwise the proposer's."""
-    if detected != "unknown":
-        return detected
-    return proposed if proposed != "other" else None
+    """The language we post: the detector's when it is confident, otherwise the proposer's.
+
+    The detector only knows Dutch, English and German, so it calls Spanish "English". The
+    proposer saying "other" therefore wins: None means the language is not one we support.
+    """
+    if proposed == "other":
+        return None
+    return detected if detected != "unknown" else proposed
 
 
 def posted_priority(p: Proposal, flags: list[RuleFlag], manipulated: bool, had_payment: bool) -> Priority:
@@ -92,7 +110,7 @@ def choose_action(
     verdict: Verdict | None,
 ) -> tuple[Action, list[str]]:
     """Return the action and, for a handoff, the reasons. First match wins."""
-    something_else_going_on = facts.flags or rt.had_payment or p.contains_instructions_to_ai
+    something_else_going_on = facts.flags or rt.had_payment or facts.instructed
     if p.is_spam and p.proposed_action == "close" and not something_else_going_on:
         return "close", []
     if facts.language is None:
@@ -139,7 +157,7 @@ def _handoff(rt: RedactedTicket, p: Proposal, facts: Facts, reasons: list[str]) 
     decided_by_rule = bool(facts.flags) or rt.had_payment or reasons == ["urgent_or_blocking"]
     return Decision(
         action="handoff", language=facts.language or "en", category=p.category, priority=facts.priority,
-        reason=_handoff_reason(p, facts, reasons), handoff_note=_handoff_note(rt, p, reasons),
+        reason=_handoff_reason(p, facts, reasons), handoff_note=_handoff_note(rt, p, facts, reasons),
         confidence=CONFIDENCE_RULE_HANDOFF if decided_by_rule else CONFIDENCE_UNSURE_HANDOFF,
     )
 
@@ -156,7 +174,7 @@ def _handoff_reason(p: Proposal, facts: Facts, reasons: list[str]) -> str:
     return f"{why_human} Priority set to {facts.priority} by policy."
 
 
-def _handoff_note(rt: RedactedTicket, p: Proposal, reasons: list[str]) -> str:
+def _handoff_note(rt: RedactedTicket, p: Proposal, facts: Facts, reasons: list[str]) -> str:
     """The proposer's English note, plus the facts the policy knows."""
     note = p.handoff_note.strip()
     if not note or check_note(note):
@@ -164,7 +182,7 @@ def _handoff_note(rt: RedactedTicket, p: Proposal, reasons: list[str]) -> str:
     lines = [note, f"Plan: {rt.ticket.customer_plan or 'unknown'}. Channel: {rt.ticket.channel or 'unknown'}."]
     if rt.had_payment:
         lines.append("The customer sent payment details. They were redacted; ask for a secure channel.")
-    if p.contains_instructions_to_ai:
+    if facts.instructed:
         lines.append("The ticket contains text addressed to the AI. It was ignored.")
     if "unsupported_language" in reasons:
         lines.append("The ticket is not clearly in Dutch, English or German; check the original text.")
