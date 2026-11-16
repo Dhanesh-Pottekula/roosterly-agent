@@ -125,7 +125,9 @@ class HelpdeskClient:
     @staticmethod
     def _checked(response: httpx.Response) -> httpx.Response:
         if not response.is_success:
-            raise FatalAPIError(f"{response.request.method} {response.request.url.path}: {response.status_code} {response.text[:200]}")
+            raise FatalAPIError(
+                f"{response.request.method} {response.request.url.path}: {response.status_code} {response.text[:200]}"
+            )
         return response
 
     def _request(self, method: str, path: str, repeatable: bool | None = None, **kwargs) -> httpx.Response:

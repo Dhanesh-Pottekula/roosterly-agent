@@ -13,7 +13,31 @@ _URL = re.compile(r"(https?://|www\.)?((?:[A-Za-z0-9-]+\.)+([A-Za-z]{2,})(/[^\s(
 # Without "http", "www" or a path, a dotted word only counts as an address if it ends like one.
 # That keeps "excl.btw", "uren.csv" and a missing space after a full stop from looking like links.
 _ADDRESS_ENDINGS = frozenset(
-    "nl com org net eu de be io app co uk info biz dev ai me fr es it xyz online site shop".split()
+    [
+        "nl",
+        "com",
+        "org",
+        "net",
+        "eu",
+        "de",
+        "be",
+        "io",
+        "app",
+        "co",
+        "uk",
+        "info",
+        "biz",
+        "dev",
+        "ai",
+        "me",
+        "fr",
+        "es",
+        "it",
+        "xyz",
+        "online",
+        "site",
+        "shop",
+    ]
 )
 _EURO_AMOUNT = re.compile(  # "€6", "EUR 6", "euro 6" and "6 €", "6,- euro", "6 euros"
     r"(?:€|\b(?:EUR|euro))\s{0,2}(\d[\d.,]*)|(\d[\d.,]*)-?\s?(?:€|(?:euros?|EUR)\b)", re.IGNORECASE
@@ -70,7 +94,7 @@ def load_kb(path: str | Path = FAQ_PATH) -> KnowledgeBase:
     faq_part, _, rules_part = text.partition(_RULES_HEADING)
     headings = list(_ENTRY_HEADING.finditer(faq_part))
     entries = {}
-    for heading, next_heading in zip(headings, headings[1:] + [None]):
+    for heading, next_heading in zip(headings, headings[1:] + [None], strict=True):
         end = next_heading.start() if next_heading else len(faq_part)
         body = faq_part[heading.end() : end].strip().removesuffix("---").strip()
         entries[heading.group(1)] = FaqEntry(heading.group(1), heading.group(2).strip(), " ".join(body.split()))
@@ -79,6 +103,8 @@ def load_kb(path: str | Path = FAQ_PATH) -> KnowledgeBase:
     return KnowledgeBase(
         entries=entries,
         rules_text=rules_part.strip(),
-        urls=frozenset(urls | {url.split("/")[0] for url in urls}),  # "app.roosterly.nl/login" also allows the bare site
+        urls=frozenset(
+            urls | {url.split("/")[0] for url in urls}
+        ),  # "app.roosterly.nl/login" also allows the bare site
         euro_amounts=frozenset(find_euro_amounts(faq_text)),
     )

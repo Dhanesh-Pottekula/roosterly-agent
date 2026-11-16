@@ -69,7 +69,12 @@ def test_usage_cost():
 
 
 def test_model_without_a_price_is_rejected_at_startup(monkeypatch):
-    for var, value in (("HELPDESK_URL", "https://x.test"), ("HELPDESK_API_KEY", "k"), ("CANDIDATE_EMAIL", "a@b.test"), ("LLM_MODEL", "some-new-model")):
+    for var, value in (
+        ("HELPDESK_URL", "https://x.test"),
+        ("HELPDESK_API_KEY", "k"),
+        ("CANDIDATE_EMAIL", "a@b.test"),
+        ("LLM_MODEL", "some-new-model"),
+    ):
         monkeypatch.setenv(var, value)
     with pytest.raises(ConfigError, match="some-new-model"):
         load_settings(dotenv=False, require_llm=False)

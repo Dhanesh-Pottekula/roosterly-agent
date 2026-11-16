@@ -38,7 +38,9 @@ def main() -> int:
         print(f"Cannot run: {error}", file=sys.stderr)
         return 2
     except TransientExhausted as error:
-        print(f"The helpdesk is not responding ({error}). Nothing is lost; run the same command again.", file=sys.stderr)
+        print(
+            f"The helpdesk is not responding ({error}). Nothing is lost; run the same command again.", file=sys.stderr
+        )
         return 1
 
 

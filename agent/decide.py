@@ -115,6 +115,7 @@ def build_system_prompt(kb: KnowledgeBase) -> str:
 
 def ticket_block(rt: RedactedTicket) -> str:
     """The ticket as data for a prompt. Angle brackets are escaped so it cannot close its own tag."""
+
     def clean(text: str) -> str:
         return text.replace("<", "‹").replace(">", "›")
 

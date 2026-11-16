@@ -4,8 +4,15 @@ from agent.helpdesk import FatalAPIError, HelpdeskClient, PostOutcome, Transient
 from agent.models import Decision
 from tests.fakes import SETTINGS, FakeClock, FakeHelpdesk, make_tickets
 
-HANDOFF = Decision(action="handoff", language="nl", category="question", priority="P4",
-                   reason="Not in the help centre.", handoff_note="Customer asks about X.", confidence=0.6)
+HANDOFF = Decision(
+    action="handoff",
+    language="nl",
+    category="question",
+    priority="P4",
+    reason="Not in the help centre.",
+    handoff_note="Customer asks about X.",
+    confidence=0.6,
+)
 
 
 def make_client(count=3, **fake_options):
@@ -64,7 +71,12 @@ def test_unknown_ticket():
 def test_wrong_key_is_fatal_and_not_retried():
     clock = FakeClock()
     fake = FakeHelpdesk(make_tickets(1))
-    client = HelpdeskClient(SETTINGS.__class__(**{**SETTINGS.__dict__, "api_key": "wrong"}), transport=fake.transport, sleep=clock.sleep, clock=clock)
+    client = HelpdeskClient(
+        SETTINGS.__class__(**{**SETTINGS.__dict__, "api_key": "wrong"}),
+        transport=fake.transport,
+        sleep=clock.sleep,
+        clock=clock,
+    )
     with pytest.raises(FatalAPIError):
         client.status()
     assert len(fake.requests) == 1

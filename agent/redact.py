@@ -17,8 +17,23 @@ _FOUR_BY_FOUR = re.compile(rf"\b\d{{4}}(?:{_SEPARATORS}\d{{4}}){{3}}\b")
 
 _IBAN_START = re.compile(r"\b[A-Z]{2}\d{2}(?=[\s.\-]?[A-Z0-9])", re.IGNORECASE)
 IBAN_LENGTHS = {
-    "NL": 18, "BE": 16, "DE": 22, "FR": 27, "LU": 20, "AT": 20, "CH": 21, "ES": 24, "IT": 27, "PT": 25,
-    "GB": 22, "IE": 22, "DK": 18, "SE": 24, "NO": 15, "FI": 18, "PL": 28,
+    "NL": 18,
+    "BE": 16,
+    "DE": 22,
+    "FR": 27,
+    "LU": 20,
+    "AT": 20,
+    "CH": 21,
+    "ES": 24,
+    "IT": 27,
+    "PT": 25,
+    "GB": 22,
+    "IE": 22,
+    "DK": 18,
+    "SE": 24,
+    "NO": 15,
+    "FI": 18,
+    "PL": 28,
 }
 
 _CVC = re.compile(

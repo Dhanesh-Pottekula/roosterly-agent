@@ -27,12 +27,15 @@ _PROMISE = re.compile(
 _TIME_PROMISE = re.compile(
     r"\bbinnen (\d+|een|één|twee|drie|enkele) (uur|uren|dag|dagen|werkdag|werkdagen|week|weken)\b"
     r"|\bwithin (\d+|an?|one|two|three|a few) (hours?|days?|working days?|business days?|weeks?)\b"
-    r"|\binnerhalb (von )?(\d+|einer|eines|einem|zwei|drei|weniger) (stunden?|tag(e|en|es)?|werktag(e|en|es)?|wochen?)\b",
+    r"|\binnerhalb (von )?(\d+|einer|eines|einem|zwei|drei|weniger) "
+    r"(stunden?|tag(e|en|es)?|werktag(e|en|es)?|wochen?)\b",
     re.IGNORECASE,
 )
 
 
-def check_reply(draft: str, language: str, requests: list[Request], rt: RedactedTicket, kb: KnowledgeBase) -> list[str]:
+def check_reply(
+    draft: str, language: str, requests: list[Request], rt: RedactedTicket, kb: KnowledgeBase
+) -> list[str]:
     """Return the problems found in a draft reply. An empty list means it passed."""
     if not draft.strip():
         return ["empty_draft"]

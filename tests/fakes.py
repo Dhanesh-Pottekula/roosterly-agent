@@ -11,13 +11,20 @@ from agent.decide import Proposal, Request
 from agent.models import Usage
 from agent.verify import Verdict
 
-SETTINGS = Settings(helpdesk_url="https://helpdesk.test", api_key="test-key", email="me@example.test",
-                    llm_api_key="test-llm-key", name="Test Candidate")
+SETTINGS = Settings(
+    helpdesk_url="https://helpdesk.test",
+    api_key="test-key",
+    email="me@example.test",
+    llm_api_key="test-llm-key",
+    name="Test Candidate",
+)
 CARD = "5555 5555 5555 4444"  # a well-known test number, not a real card
 IBAN = "NL91 ABNA 0417 1643 00"  # the standard example IBAN
 F12_QUOTE = "The app works on iOS 16 and later and Android 10 and later."
-DUTCH_DRAFT = ("Hoi! De app werkt op iOS 16 en hoger en op Android 10 en hoger. Wil je inklokken met locatie, "
-               "geef de app dan toestemming om je locatie te gebruiken. Groet, Team Roosterly")
+DUTCH_DRAFT = (
+    "Hoi! De app werkt op iOS 16 en hoger en op Android 10 en hoger. Wil je inklokken met locatie, "
+    "geef de app dan toestemming om je locatie te gebruiken. Groet, Team Roosterly"
+)
 
 
 class FakeClock:
@@ -80,8 +87,14 @@ class FakeHelpdesk:
             return self._error(503, "service_unavailable")
 
         if path == "/status":
-            return httpx.Response(200, json={"mode": "practice", "open_tickets": len(self.tickets) - len(self.handled),
-                                             "handled_tickets": len(self.handled)})
+            return httpx.Response(
+                200,
+                json={
+                    "mode": "practice",
+                    "open_tickets": len(self.tickets) - len(self.handled),
+                    "handled_tickets": len(self.handled),
+                },
+            )
         if path == "/practice/reset":
             self.handled.clear()
             return httpx.Response(200, json={"ok": True})
@@ -129,27 +142,47 @@ class FakeHelpdesk:
 
 
 def make_tickets(count: int) -> list[dict]:
-    return [{"id": f"X{i:03d}", "received_at": "2026-01-01T09:00:00+00:00", "channel": "email", "customer_plan": "Basis",
-             "subject": "Tablet", "body": "Hallo, op welke versie van Android draait jullie app? Wij willen tablets kopen."}
-            for i in range(1, count + 1)]
+    return [
+        {
+            "id": f"X{i:03d}",
+            "received_at": "2026-01-01T09:00:00+00:00",
+            "channel": "email",
+            "customer_plan": "Basis",
+            "subject": "Tablet",
+            "body": "Hallo, op welke versie van Android draait jullie app? Wij willen tablets kopen.",
+        }
+        for i in range(1, count + 1)
+    ]
 
 
 def make_proposal(**overrides) -> Proposal:
     """A sound reply proposal for a Dutch "which Android version do I need" ticket."""
     fields = dict(
-        language="nl", summary_en="The customer asks which Android version the app needs.",
-        contains_instructions_to_ai=False, is_spam=False, rule_flags=[],
+        language="nl",
+        summary_en="The customer asks which Android version the app needs.",
+        contains_instructions_to_ai=False,
+        is_spam=False,
+        rule_flags=[],
         requests=[Request(description_en="Which Android version is needed", faq_id="F12", faq_quote=F12_QUOTE)],
-        category="question", priority="P4", priority_reason="How-to question without urgency.",
-        proposed_action="reply", draft_reply=DUTCH_DRAFT,
+        category="question",
+        priority="P4",
+        priority_reason="How-to question without urgency.",
+        proposed_action="reply",
+        draft_reply=DUTCH_DRAFT,
         handoff_note="Customer asks which Android version the app needs. Covered by help centre entry F12.",
     )
     return Proposal(**(fields | overrides))
 
 
 def make_verdict(**overrides) -> Verdict:
-    fields = dict(translation_en="Hi! The app works on iOS 16 and later and on Android 10 and later ...", draft_language="nl",
-                  unaddressed_requests=[], unsupported_claims=[], promises_or_discounts=False, always_human=[])
+    fields = dict(
+        translation_en="Hi! The app works on iOS 16 and later and on Android 10 and later ...",
+        draft_language="nl",
+        unaddressed_requests=[],
+        unsupported_claims=[],
+        promises_or_discounts=False,
+        always_human=[],
+    )
     return Verdict(**(fields | overrides))
 
 

@@ -11,7 +11,7 @@ cp .env.example .env                                  # fill in the keys and you
 python -m agent run                                   # handle every open ticket (add --dry-run to post nothing)
 python -m agent status                                # open / handled counts
 python -m eval.run_eval --tag baseline --runs 3 --judge
-pytest                                                # 238 tests, no network
+pytest                                                # 244 tests, no network
 ```
 
 ## Decisions
@@ -34,7 +34,7 @@ pytest                                                # 238 tests, no network
 - **Timeout or other 5xx on a POST**: the write may have landed. The agent reads the ticket back and posts again only if it is still open.
 - **Crash**: run the same command again. Tests inject crashes and check that no ticket gets two answers. A kill in the instant between a post and its log write loses that log line, never the answer.
 - **LLM outage or a bug on one ticket**: the ticket stays open, is retried once, and the run exits non-zero; the rest of the queue continues. A refusal becomes a handoff.
-- **Security**: keys only from the environment; ticket text is wrapped as data, and text aimed at the AI is spotted by a pattern as well as by the model, so a ticket cannot talk its priority up; the model has no tools; card numbers and IBANs are redacted by checksum before the model sees the ticket and again on everything posted or logged (an IBAN with a typo is not recognised); logs hold codes, not customer text.
+- **Security**: keys only from the environment; ticket text is wrapped as data; text aimed at the AI is flagged by the model and by a pattern for common override phrases, and a flagged ticket cannot raise its priority (a paraphrase that fools both still ends in a handoff, never a reply); the model has no tools; card numbers and IBANs are redacted by checksum before the model sees the ticket and again on everything posted or logged (an IBAN with a typo is not recognised); logs hold codes, not customer text.
 
 ## Eval and fix
 

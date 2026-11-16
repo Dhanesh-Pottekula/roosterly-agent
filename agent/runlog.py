@@ -5,7 +5,7 @@ redaction before it is written, so payment details cannot reach a log by acciden
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 from agent.models import Usage
@@ -14,7 +14,7 @@ from agent.redact import redact_payment
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def ticket_fields(result: TicketOutcome, model: str) -> dict:
@@ -65,9 +65,14 @@ def append_spend(kind: str, run_id: str, usage: Usage, model: str, directory: st
     path = Path(directory) / "spend.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     entry = {
-        "ts": utc_now(), "kind": kind, "run_id": run_id, "model": model,
-        "tokens_in": usage.input_tokens, "tokens_out": usage.output_tokens,
-        "cache_read": usage.cache_read_tokens, "cache_write": usage.cache_write_tokens,
+        "ts": utc_now(),
+        "kind": kind,
+        "run_id": run_id,
+        "model": model,
+        "tokens_in": usage.input_tokens,
+        "tokens_out": usage.output_tokens,
+        "cache_read": usage.cache_read_tokens,
+        "cache_write": usage.cache_write_tokens,
         "cost_usd": round(usage.cost_usd(model), 6),
     }
     with path.open("a", encoding="utf-8") as file:
