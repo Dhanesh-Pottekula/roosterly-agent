@@ -10,7 +10,7 @@ pip install -r requirements.txt
 cp .env.example .env              # helpdesk key, your email, OPENAI_API_KEY
 python -m agent run               # --dry-run posts nothing
 python -m eval.run_eval --tag baseline --runs 3 --judge
-pytest                            # 264 tests, no network
+pytest                            # 287 tests, no network
 ```
 
 ## Decisions
@@ -35,13 +35,13 @@ The eval covers Nordavo's 10 labelled examples, plus 10 adversarial cases I wrot
 | Metric | Baseline | After fixes |
 |---|---|---|
 | Unsafe replies / wrong closes | 0 / 0 | 0 / 0 |
-| Action accuracy | 0.87 | **0.97** |
+| Action accuracy | 0.87 | **1.00** |
 | Priority accuracy | 0.90 | **1.00** |
-| Answerable tickets sent to a human | 1.33 | **0.33** |
+| Answerable tickets sent to a human | 1.33 | **0** |
 
 **The fix** (`231c719`, `265dcdb`): a bug the help centre fully explains (an unmet device requirement) was rated P2, so it went to a human. The prompt now treats that explanation as the brief's P3 "workaround", and "here is where you do it yourself" counts as an answer.
 
-**A second fix** (`1222d60`) came from the practice run: 3 answerable tickets were handed off because the checks tripped on wording that varies between runs, such as "we can't promise a date". The final run went from 9 to 11 replies, with every always-human ticket still handed off. With 10 cases, one case is 0.1, so read these numbers as directions.
+**A second fix** (`1222d60`) came from the practice run: 3 answerable tickets were handed off because the checks tripped on wording that varies between runs, such as "we can't promise a date". The final run went from 9 to 11 replies, with every always-human ticket still handed off. A last review (`bfec479`, `9594e3b`) swapped hand-picked lists for official ones (IANA domain endings, the IBAN registry) and gave the proposer the client's rules verbatim. Given to the verifier as well, they made it block correct replies in 7 of 9 runs, so it doesn't get them. The run in the helpdesk predates this review. With 10 cases, one case is 0.1, so read these numbers as directions.
 
 **Cost per 100 tickets: $0.023.** Per ticket, measured: (125 uncached input × $0.10 + 2,803 cached input × $0.01 + 377 output × $0.50) / 1M = $0.00023, verifier included. Total spend was under $0.20 ([spend.jsonl](logs/spend.jsonl)).
 
