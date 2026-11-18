@@ -232,3 +232,79 @@ def test_verifier_prompt_uses_the_same_rule_definitions():
 def test_each_verdict_finding_is_reported_separately(overrides, problem):
     assert make_verdict().problems("nl") == []
     assert make_verdict(**overrides).problems("nl") == [problem]
+
+
+# --- found in the final practice run: harmless wording that varies between runs ---------
+
+F10 = [
+    Request(
+        description_en="Idea for the app",
+        faq_id="F10",
+        faq_quote="Feature requests go on our public roadmap at roadmap.roosterly.nl, where you can vote on ideas.",
+    )
+]
+
+
+@pytest.mark.parametrize(
+    "draft, language",
+    [
+        ("Bedankt voor je idee! We kunnen geen leverdatum beloven, maar je kunt stemmen op roadmap.roosterly.nl.", "nl"),
+        ("Bedankt voor je idee. Een datum kunnen we helaas niet garanderen; stem op roadmap.roosterly.nl.", "nl"),
+        ("Thanks for the idea. We cannot guarantee a delivery date, but you can vote at roadmap.roosterly.nl.", "en"),
+        ("Danke für Ihre Idee. Ein Lieferdatum können wir nicht garantieren, stimmen Sie auf roadmap.roosterly.nl ab.", "de"),
+    ],
+)
+def test_saying_a_date_cannot_be_promised_is_not_a_promise(draft, language):
+    assert "promise_in_draft" not in problems(draft, language=language, requests=F10)
+
+
+@pytest.mark.parametrize(
+    "draft, language",
+    [
+        ("Bedankt voor je idee. We beloven dat het volgende maand klaar is.", "nl"),
+        ("Bedankt voor je idee. Wij garanderen dat dit snel komt.", "nl"),
+        ("Thanks for the idea. We guarantee it ships next month.", "en"),
+        ("Bedankt voor je idee. Je krijgt geen korting, maar je kunt stemmen.", "nl"),  # discounts never belong in a reply
+    ],
+)
+def test_real_promises_still_fail(draft, language):
+    assert "promise_in_draft" in problems(draft, language=language, requests=F10)
+
+
+@pytest.mark.parametrize(
+    "faq_id, quote",
+    [
+        ("F07", "Add one under Instellingen → Vestigingen → Nieuwe vestiging."),  # English menu meaning left out
+        (
+            "F05",
+            "Prices exclude VAT. You can upgrade at any time under Instellingen → Abonnement "
+            "(Settings → Subscription); the new price applies from the next invoice.",
+        ),  # two sentences of the same entry
+    ],
+)
+def test_quote_variants_of_real_help_centre_text_pass(faq_id, quote):
+    assert problems(DUTCH_DRAFT, requests=[Request(description_en="x", faq_id=faq_id, faq_quote=quote)]) == []
+
+
+def test_a_real_sentence_does_not_carry_an_invented_one():
+    quote = "Prices exclude VAT. Upgrading is free for the first month."
+    assert "faq_quote_not_in_help_centre" in problems(
+        DUTCH_DRAFT, requests=[Request(description_en="x", faq_id="F05", faq_quote=quote)]
+    )
+
+
+def test_verifier_prompt_says_restating_a_help_centre_fact_is_not_a_promise():
+    prompt = build_verifier_prompt(kb)
+    assert "Restating a fact from the help centre" in prompt
+
+
+def test_quote_that_drops_the_english_menu_meaning_mid_sentence_passes():
+    quote = "You can upgrade at any time under Instellingen → Abonnement; the new price applies from the next invoice."
+    assert problems(DUTCH_DRAFT, requests=[Request(description_en="x", faq_id="F05", faq_quote=quote)]) == []
+
+
+def test_an_invented_bracket_in_a_quote_still_fails():
+    quote = "Prices exclude VAT (the first month is free)."
+    assert "faq_quote_not_in_help_centre" in problems(
+        DUTCH_DRAFT, requests=[Request(description_en="x", faq_id="F05", faq_quote=quote)]
+    )

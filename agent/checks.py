@@ -23,6 +23,13 @@ _PROMISE = re.compile(
     r"|rabatt|erstatt|kostenlos|entschädig",
     re.IGNORECASE,
 )
+# "We can't promise a date" is the help centre's own message (F10), not a promise. Only the
+# promise verbs can be negated this way; a discount or refund never belongs in a reply at all.
+_NEGATED_PROMISE = re.compile(
+    r"\b(geen|niet|nooit|not|no|cannot|can't|never|nicht|kein\w*)\b(\W+\w+){0,4}?\W+"
+    r"(belov\w*|garand\w*|garant\w*|guarantee\w*)",
+    re.IGNORECASE,
+)
 # A response time is a promise. Minutes are left out: the help centre itself says "within 10 minutes".
 _TIME_PROMISE = re.compile(
     r"\bbinnen (\d+|een|één|twee|drie|enkele) (uur|uren|dag|dagen|werkdag|werkdagen|week|weken)\b"
@@ -46,7 +53,7 @@ def check_reply(draft: str, language: str, requests: list[Request], rt: Redacted
         problems.add("percentage_in_draft")
     if find_euro_amounts(draft) - _allowed_amounts(rt, kb):
         problems.add("amount_not_in_help_centre")
-    if _PROMISE.search(draft) or _TIME_PROMISE.search(draft):
+    if _PROMISE.search(_NEGATED_PROMISE.sub(" ", draft)) or _TIME_PROMISE.search(draft):
         problems.add("promise_in_draft")
     if contains_payment(draft):
         problems.add("payment_details_in_draft")
@@ -79,10 +86,17 @@ def _quote_problem(request: Request, kb: KnowledgeBase) -> str | None:
     entry = kb.entries.get(entry_id.group()) if entry_id else None
     if entry is None or not request.faq_quote:
         return "request_without_faq_answer"
-    quote = _normalise(request.faq_quote)
-    if len(quote) < MIN_QUOTE_LENGTH or quote not in _normalise(entry.text):
+    # A quote may leave out the English meaning in brackets after a Dutch menu name, so brackets
+    # that really are in the entry are dropped on both sides. An invented bracket stays and fails.
+    real_brackets = {_normalise(b) for b in _BRACKET.findall(entry.text)}
+    quote = _BRACKET.sub(lambda m: "" if _normalise(m.group()) in real_brackets else m.group(), request.faq_quote)
+    quote = _normalise(quote)
+    if len(quote) < MIN_QUOTE_LENGTH or quote not in _normalise(_BRACKET.sub("", entry.text)):
         return "faq_quote_not_in_help_centre"
     return None
+
+
+_BRACKET = re.compile(r"\s*\([^()]*\)")
 
 
 def _normalise(text: str) -> str:

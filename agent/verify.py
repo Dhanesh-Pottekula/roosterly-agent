@@ -68,7 +68,9 @@ includes is supported when it matches the help centre and the customer's plan. G
 a sign-off, repeating what the customer wrote, and telling them where they can do something \
 themselves are not claims.
 promises_or_discounts: true if the draft promises anything: a date, a response time, a discount, \
-a refund, compensation or a future feature. Saying that no date can be promised is not a promise.
+a refund, compensation or a future feature. Saying that no date can be promised is not a promise. \
+Restating a fact from the help centre is not a promise either (for example when a new price takes \
+effect, or how long a reset link stays valid).
 always_human: every flag from the list above that applies to the ticket. Empty if none.
 """
 
