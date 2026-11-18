@@ -16,7 +16,9 @@ F05 = [
     Request(
         description_en="Price of Plus",
         faq_id="F05",
-        faq_quote="Plus: €6 per active employee per month, unlimited locations, API access and the payroll integrations.",
+        faq_quote=(
+            "Plus: €6 per active employee per month, unlimited locations, API access and the payroll integrations."
+        ),
     )
 ]
 
@@ -36,7 +38,8 @@ def problems(draft, language="nl", requests=F12, rt=None):
     "text, expected",
     [
         (
-            "Gehen Sie als Manager zu Team → Medewerker toevoegen (Add employee) und klicken Sie auf Uitnodigen (Invite).",
+            "Gehen Sie als Manager zu Team → Medewerker toevoegen (Add employee) "
+            "und klicken Sie auf Uitnodigen (Invite).",
             "de",
         ),
         ("Thanks, that worked.", "en"),
@@ -44,7 +47,8 @@ def problems(draft, language="nl", requests=F12, rt=None):
         ("Wo finde ich die Übersicht meiner Stunden?", "de"),
         ("The label on the export screen reads 'Urenoverzicht downloaden' twice.", "en"),
         (
-            "Go to Instellingen → Abonnement → Facturen (Settings → Subscription → Invoices) to download your invoices.",
+            "Go to Instellingen → Abonnement → Facturen (Settings → Subscription → Invoices) "
+            "to download your invoices.",
             "en",
         ),
         ("Ik heb zo'n 20 medewerkers en de foto's van 's ochtends laden niet meer.", "nl"),
@@ -107,7 +111,10 @@ def test_help_centre_facts_are_allowed(extra):
 
 
 def test_german_reply_may_mention_the_help_centre_time_limits():
-    draft = "Guten Tag, der Link ist 60 Minuten gültig. Falls innerhalb von 10 Minuten keine E-Mail ankommt, prüfen Sie bitte Ihren Spam-Ordner."
+    draft = (
+        "Guten Tag, der Link ist 60 Minuten gültig. "
+        "Falls innerhalb von 10 Minuten keine E-Mail ankommt, prüfen Sie bitte Ihren Spam-Ordner."
+    )
     quote = [
         Request(description_en="Reset password", faq_id="F01", faq_quote="The reset link is valid for 60 minutes.")
     ]
