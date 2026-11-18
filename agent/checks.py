@@ -33,9 +33,7 @@ _TIME_PROMISE = re.compile(
 )
 
 
-def check_reply(
-    draft: str, language: str, requests: list[Request], rt: RedactedTicket, kb: KnowledgeBase
-) -> list[str]:
+def check_reply(draft: str, language: str, requests: list[Request], rt: RedactedTicket, kb: KnowledgeBase) -> list[str]:
     """Return the problems found in a draft reply. An empty list means it passed."""
     if not draft.strip():
         return ["empty_draft"]
