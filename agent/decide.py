@@ -70,6 +70,8 @@ sentence from that entry, character for character, that contains the answer. Oth
 - Do not stretch an entry. If the customer asks whether Roosterly has or supports something and the \
 help centre does not say, the request is not answered. If the customer asks us to build or add \
 something, that is a feature request, and the entry about ideas and the roadmap answers it.
+- If the customer asks us to change or check something that the help centre says they can do or \
+look up themselves, the entry that tells them where answers the request.
 
 category:
 - bug: something in the product does not work as the customer expects, even if the help centre explains why.
