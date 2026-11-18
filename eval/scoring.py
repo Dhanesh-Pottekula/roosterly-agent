@@ -107,9 +107,7 @@ def score(results: list[CaseResult], model: str) -> dict[str, float | None]:
         else 1.0,
         "reply_quality": round(mean(judged), 2) if judged else None,  # None: the judge did not run
         "errors": sum(r.outcome.decision is None for r in results),
-        "tokens_in_per_ticket": round(
-            (usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens) / max(len(results), 1)
-        ),
+        "tokens_in_per_ticket": round((usage.input_tokens + usage.cache_read_tokens) / max(len(results), 1)),
         "tokens_out_per_ticket": round(usage.output_tokens / max(len(results), 1)),
         "cost_usd_per_100": round(100 * usage.cost_usd(model) / max(len(results), 1), 4),
     }

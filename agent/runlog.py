@@ -22,7 +22,7 @@ def ticket_fields(result: TicketOutcome, model: str) -> dict:
     usage = result.usage
     fields: dict = {
         "model": model,
-        "tokens_in": usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens,
+        "tokens_in": usage.input_tokens + usage.cache_read_tokens,
         "tokens_out": usage.output_tokens,
         "cost_usd": round(usage.cost_usd(model), 6),
         "handoff_reasons": result.handoff_reasons,
@@ -72,7 +72,6 @@ def append_spend(kind: str, run_id: str, usage: Usage, model: str, directory: st
         "tokens_in": usage.input_tokens,
         "tokens_out": usage.output_tokens,
         "cache_read": usage.cache_read_tokens,
-        "cache_write": usage.cache_write_tokens,
         "cost_usd": round(usage.cost_usd(model), 6),
     }
     with path.open("a", encoding="utf-8") as file:

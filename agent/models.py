@@ -12,10 +12,6 @@ Category = Literal["bug", "billing", "feature_request", "question", "other"]
 Priority = Literal["P1", "P2", "P3", "P4"]
 Action = Literal["reply", "handoff", "close"]
 
-# Cache reads and writes are billed as a fraction of the normal input price.
-CACHE_READ_FACTOR = 0.1
-CACHE_WRITE_FACTOR = 1.25
-
 
 class Ticket(BaseModel):
     id: str
@@ -75,22 +71,17 @@ class Usage:
 
     input_tokens: int = 0
     output_tokens: int = 0
-    cache_read_tokens: int = 0
-    cache_write_tokens: int = 0
+    cache_read_tokens: int = 0  # input tokens served from the prompt cache, billed at the cached price
 
     def __add__(self, other: "Usage") -> "Usage":
         return Usage(
             self.input_tokens + other.input_tokens,
             self.output_tokens + other.output_tokens,
             self.cache_read_tokens + other.cache_read_tokens,
-            self.cache_write_tokens + other.cache_write_tokens,
         )
 
     def cost_usd(self, model: str) -> float:
-        price_in, price_out = PRICES[model]
-        billed_input = (
-            self.input_tokens
-            + self.cache_read_tokens * CACHE_READ_FACTOR
-            + self.cache_write_tokens * CACHE_WRITE_FACTOR
-        )
-        return (billed_input * price_in + self.output_tokens * price_out) / 1_000_000
+        price_in, price_cached, price_out = PRICES[model]
+        return (
+            self.input_tokens * price_in + self.cache_read_tokens * price_cached + self.output_tokens * price_out
+        ) / 1_000_000

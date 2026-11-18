@@ -155,7 +155,7 @@ def test_wrong_llm_key_stops_the_run_before_anything_is_posted(tmp_path):
 def test_command_line_reports_setup_problems_without_a_traceback(monkeypatch, capsys):
     from agent import __main__ as cli
 
-    for var in ("HELPDESK_URL", "HELPDESK_API_KEY", "CANDIDATE_EMAIL", "ANTHROPIC_API_KEY"):
+    for var in ("HELPDESK_URL", "HELPDESK_API_KEY", "CANDIDATE_EMAIL", "OPENAI_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(
         cli,

@@ -147,7 +147,6 @@ class Runner:
                 "tokens_in": self.usage.input_tokens,
                 "tokens_out": self.usage.output_tokens,
                 "cache_read": self.usage.cache_read_tokens,
-                "cache_write": self.usage.cache_write_tokens,
                 "cost_usd": round(summary.cost_usd, 6),
                 "helpdesk_status": summary.status,
             }

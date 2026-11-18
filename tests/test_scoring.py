@@ -5,7 +5,7 @@ from eval.run_eval import load_cases, run_once, summarise, to_markdown
 from eval.scoring import Case, CaseResult, expected_faq_id, score
 from tests.fakes import FakeLLM, make_proposal
 
-MODEL = "claude-haiku-5-5"
+MODEL = "gpt-6-luna"
 
 
 def result(expected_action, got_action, expected_priority="P4", got_priority="P4", reason="Answered by FAQ F12."):

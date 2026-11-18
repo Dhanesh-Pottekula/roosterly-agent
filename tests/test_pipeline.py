@@ -9,7 +9,7 @@ from agent.verify import Verdict
 from tests.fakes import CARD, FakeLLM, make_proposal
 
 kb = load_kb()
-MODEL = "claude-haiku-5-5"
+MODEL = "gpt-6-luna"
 
 
 def ticket(body="Hallo, op welke versie van Android draait jullie app? Wij willen tablets kopen.", subject="Tablet"):

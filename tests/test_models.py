@@ -44,7 +44,7 @@ def test_to_api_body_excludes_action_and_nones():
 
 
 def test_load_settings_reports_all_missing(monkeypatch):
-    for var in ("HELPDESK_URL", "HELPDESK_API_KEY", "CANDIDATE_EMAIL", "ANTHROPIC_API_KEY"):
+    for var in ("HELPDESK_URL", "HELPDESK_API_KEY", "CANDIDATE_EMAIL", "OPENAI_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     with pytest.raises(ConfigError) as err:
         load_settings(dotenv=False)
@@ -56,15 +56,15 @@ def test_load_settings_llm_key_optional_for_offline(monkeypatch):
     monkeypatch.setenv("HELPDESK_URL", "https://example.test/helpdesk")
     monkeypatch.setenv("HELPDESK_API_KEY", "k")
     monkeypatch.setenv("CANDIDATE_EMAIL", "me@example.test")
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     s = load_settings(dotenv=False, require_llm=False)
-    assert s.llm_model == "claude-haiku-5-5"
+    assert s.llm_model == "gpt-6-luna"
     assert s.rps == 4.0
 
 
 def test_usage_cost():
     u = Usage(input_tokens=1_000_000, output_tokens=1_000_000)
-    assert u.cost_usd("claude-haiku-5-5") == pytest.approx(0.60)
+    assert u.cost_usd("gpt-6-luna") == pytest.approx(0.60)  # $0.10 in + $0.50 out per million
     assert (u + Usage(input_tokens=1)).input_tokens == 1_000_001
 
 
@@ -87,4 +87,5 @@ def test_ticket_with_null_fields_is_still_a_ticket():
 
 
 def test_cached_input_is_cheaper():
-    assert Usage(cache_read_tokens=1_000_000).cost_usd("claude-haiku-5-5") == pytest.approx(0.01)
+    assert Usage(cache_read_tokens=1_000_000).cost_usd("gpt-6-luna") == pytest.approx(0.01)
+    assert Usage(cache_read_tokens=1_000_000).cost_usd("gpt-6.1-terra") == pytest.approx(0.05)

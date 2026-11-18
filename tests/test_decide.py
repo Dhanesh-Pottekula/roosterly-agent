@@ -1,5 +1,5 @@
-import anthropic
 import httpx
+import openai
 import pytest
 
 from agent.decide import Proposal, build_system_prompt, decide, ticket_block
@@ -11,6 +11,7 @@ from agent.rules import ALWAYS_HUMAN
 from tests.fakes import CARD, SETTINGS, FakeLLM
 
 kb = load_kb()
+MODEL = "gpt-6-luna"
 
 
 def test_prompt_contains_the_help_centre_and_the_rules():
@@ -33,12 +34,12 @@ def test_ticket_is_wrapped_as_data_and_cannot_close_its_own_tag():
 def test_llm_never_sees_payment_details():
     llm = FakeLLM()
     rt = redact_ticket(Ticket(id="X1", subject=f"Kaart {CARD}", body=f"Mijn kaart is {CARD}, cvv 987"))
-    decide(rt, kb, llm, "claude-haiku-5-5")
+    decide(rt, kb, llm, MODEL)
     sent = " ".join(system + user for _, system, user in llm.calls)
     assert "5555" not in sent and "987" not in sent and "[CARD]" in sent
 
 
-class _StubMessages:
+class _StubResponses:
     def __init__(self, result):
         self.result = result
 
@@ -49,59 +50,65 @@ class _StubMessages:
         return self.result
 
 
-class _Response:
-    def __init__(self, stop_reason="end_turn", parsed="parsed"):
-        self.stop_reason, self.parsed_output = stop_reason, parsed
-        self.usage = type(
-            "U",
-            (),
-            {
-                "input_tokens": 10,
-                "output_tokens": 5,
-                "cache_read_input_tokens": 900,
-                "cache_creation_input_tokens": None,
-            },
-        )()
+def _obj(**fields):
+    return type("O", (), fields)()
+
+
+def _response(status="completed", parsed="parsed", incomplete_reason=None, refusal=False):
+    content = [_obj(type="refusal", refusal="no")] if refusal else [_obj(type="output_text", text="{}")]
+    return _obj(
+        status=status,
+        incomplete_details=_obj(reason=incomplete_reason) if incomplete_reason else None,
+        output=[_obj(type="message", content=content)],
+        output_parsed=None if refusal else parsed,
+        usage=_obj(input_tokens=910, output_tokens=5, input_tokens_details=_obj(cached_tokens=900)),
+    )
 
 
 def client_returning(result) -> LLMClient:
     client = LLMClient(SETTINGS)
-    client._client = type("C", (), {"messages": _StubMessages(result)})()
+    client._client = _obj(responses=_StubResponses(result))
     return client
 
 
 def call(client):
-    return client.complete_json("system", "user", Proposal, "claude-haiku-5-5")
+    return client.complete_json("system", "user", Proposal, MODEL)
 
 
-def test_successful_call_caches_the_system_prompt_and_counts_tokens():
-    client = client_returning(_Response())
+def test_successful_call_uses_strict_output_and_counts_cached_tokens_once():
+    client = client_returning(_response())
     parsed, usage = call(client)
-    sent = client._client.messages.kwargs
-    assert parsed == "parsed" and usage.cache_read_tokens == 900 and usage.cache_write_tokens == 0
-    assert sent["system"][0]["cache_control"] == {"type": "ephemeral"}
-    assert sent["output_format"] is Proposal and sent["output_config"] == {"effort": "low"}
+    sent = client._client.responses.kwargs
+    assert parsed == "parsed"
+    assert (usage.input_tokens, usage.cache_read_tokens, usage.output_tokens) == (10, 900, 5)
+    assert sent["instructions"] == "system" and sent["text_format"] is Proposal
+    assert sent["reasoning"] == {"effort": "low"} and sent["store"] is False
+    assert sent["prompt_cache_key"]  # same system prompt, same cache
 
 
-@pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens"])
-def test_refusal_or_truncation_is_a_deterministic_failure(stop_reason):
-    with pytest.raises(LLMDeterministicError, match=stop_reason):
-        call(client_returning(_Response(stop_reason=stop_reason)))
+def test_truncation_is_a_deterministic_failure():
+    with pytest.raises(LLMDeterministicError, match="max_output_tokens"):
+        call(client_returning(_response(status="incomplete", incomplete_reason="max_output_tokens")))
 
 
-def _status_error(status: int) -> anthropic.APIStatusError:
-    response = httpx.Response(status, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
-    return anthropic.APIStatusError("error", response=response, body=None)
+def test_refusal_is_a_deterministic_failure():
+    with pytest.raises(LLMDeterministicError, match="refusal"):
+        call(client_returning(_response(refusal=True)))
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        _status_error(529),
-        _status_error(429),
-        anthropic.APITimeoutError(httpx.Request("POST", "https://api.anthropic.com/v1/messages")),
-    ],
-)
+def test_malformed_json_is_a_deterministic_failure():
+    with pytest.raises(LLMDeterministicError, match="invalid_output"):
+        call(client_returning(ValueError("Unterminated string")))
+
+
+_REQUEST = httpx.Request("POST", "https://api.openai.com/v1/responses")
+
+
+def _status_error(status: int) -> openai.APIStatusError:
+    return openai.APIStatusError("error", response=httpx.Response(status, request=_REQUEST), body=None)
+
+
+@pytest.mark.parametrize("error", [_status_error(503), _status_error(429), openai.APITimeoutError(_REQUEST)])
 def test_overload_and_timeouts_are_transient(error):
     with pytest.raises(LLMTransientError):
         call(client_returning(error))

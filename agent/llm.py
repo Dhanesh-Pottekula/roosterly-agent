@@ -1,8 +1,9 @@
-"""The one place that talks to the Anthropic SDK: a structured call that returns a pydantic object."""
+"""The one place that talks to the OpenAI SDK: a structured call that returns a pydantic object."""
 
+import hashlib
 from typing import Protocol, TypeVar
 
-import anthropic
+import openai
 from pydantic import BaseModel, ValidationError
 
 from agent.config import Settings
@@ -29,39 +30,56 @@ class LLM(Protocol):
 
 class LLMClient:
     def __init__(self, settings: Settings):
-        self._client = anthropic.Anthropic(api_key=settings.llm_api_key, max_retries=3, timeout=60.0)
+        self._client = openai.OpenAI(api_key=settings.llm_api_key, max_retries=3, timeout=60.0)
 
     def complete_json(
         self, system: str, user: str, schema: type[T], model: str, max_tokens: int = 6000
     ) -> tuple[T, Usage]:
-        """Ask for an object of type `schema`. The system prompt is the stable part, so it is cached."""
+        """Ask for an object of type `schema` (strict structured output).
+
+        The system prompt comes first and never changes within a run, so OpenAI caches it;
+        the cache key keeps calls with the same prompt on the same cache.
+        """
         try:
-            response = self._client.messages.parse(
+            response = self._client.responses.parse(
                 model=model,
-                max_tokens=max_tokens,  # thinking is billed as output, so leave room for it
-                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": user}],
-                output_format=schema,
-                output_config={"effort": "low"},
+                instructions=system,
+                input=[{"role": "user", "content": user}],
+                text_format=schema,
+                reasoning={"effort": "low"},
+                max_output_tokens=max_tokens,  # reasoning is billed as output, so leave room for it
+                prompt_cache_key=hashlib.sha256(system.encode()).hexdigest()[:32],
+                store=False,  # customer text is not kept on OpenAI's side
             )
-        except anthropic.APIConnectionError as error:  # includes timeouts
+        except openai.APIConnectionError as error:  # includes timeouts
             raise LLMTransientError(str(error)) from error
-        except anthropic.APIStatusError as error:
+        except openai.APIStatusError as error:
             if error.status_code in (408, 409, 429) or error.status_code >= 500:
                 raise LLMTransientError(f"{error.status_code}") from error
             # Wrong key, wrong model or a request the API rejects: the next ticket would fail too.
             raise LLMFatalError(f"{error.status_code}: {error.message}") from error
-        except ValidationError as error:
+        except (ValidationError, ValueError) as error:  # truncated or malformed JSON
             raise LLMDeterministicError("invalid_output") from error
 
-        if response.stop_reason in ("refusal", "max_tokens"):
-            raise LLMDeterministicError(response.stop_reason)
-        if response.parsed_output is None:
+        if response.status == "incomplete":
+            reason = getattr(response.incomplete_details, "reason", None) or "incomplete"
+            raise LLMDeterministicError(reason)
+        if _refused(response):
+            raise LLMDeterministicError("refusal")
+        if response.output_parsed is None:
             raise LLMDeterministicError("invalid_output")
         usage = response.usage
-        return response.parsed_output, Usage(
-            input_tokens=usage.input_tokens,
+        cached = getattr(usage.input_tokens_details, "cached_tokens", 0) or 0
+        return response.output_parsed, Usage(
+            input_tokens=usage.input_tokens - cached,  # OpenAI counts cached tokens inside input_tokens
             output_tokens=usage.output_tokens,
-            cache_read_tokens=usage.cache_read_input_tokens or 0,
-            cache_write_tokens=usage.cache_creation_input_tokens or 0,
+            cache_read_tokens=cached,
         )
+
+
+def _refused(response) -> bool:
+    for item in response.output or []:
+        for part in getattr(item, "content", None) or []:
+            if getattr(part, "type", None) == "refusal":
+                return True
+    return False
