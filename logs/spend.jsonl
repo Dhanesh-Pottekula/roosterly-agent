@@ -1,0 +1,7 @@
+{"ts": "2026-11-18T06:11:43+00:00", "kind": "eval", "run_id": "baseline", "model": "gpt-6-luna", "tokens_in": 5132, "tokens_out": 21658, "cache_read": 160837, "cost_usd": 0.012951}
+{"ts": "2026-11-18T06:11:43+00:00", "kind": "eval-judge", "run_id": "baseline", "model": "gpt-6.1-terra", "tokens_in": 8632, "tokens_out": 1383, "cache_read": 0, "cost_usd": 0.015547}
+{"ts": "2026-11-18T06:13:08+00:00", "kind": "dry-run", "run_id": "dry-20261118T061234Z", "model": "gpt-6-luna", "tokens_in": 650, "tokens_out": 1788, "cache_read": 14805, "cost_usd": 0.001107}
+{"ts": "2026-11-18T06:20:52+00:00", "kind": "eval", "run_id": "after-fix", "model": "gpt-6-luna", "tokens_in": 5441, "tokens_out": 20635, "cache_read": 162791, "cost_usd": 0.01249}
+{"ts": "2026-11-18T06:20:52+00:00", "kind": "eval-judge", "run_id": "after-fix", "model": "gpt-6.1-terra", "tokens_in": 8305, "tokens_out": 1409, "cache_read": 0, "cost_usd": 0.01535}
+{"ts": "2026-11-18T06:28:28+00:00", "kind": "eval", "run_id": "after-fix-2", "model": "gpt-6-luna", "tokens_in": 7492, "tokens_out": 22608, "cache_read": 168190, "cost_usd": 0.013735}
+{"ts": "2026-11-18T06:28:28+00:00", "kind": "eval-judge", "run_id": "after-fix-2", "model": "gpt-6.1-terra", "tokens_in": 9045, "tokens_out": 1718, "cache_read": 0, "cost_usd": 0.017635}
