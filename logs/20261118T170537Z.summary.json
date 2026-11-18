@@ -1,0 +1,29 @@
+{
+  "run_id": "20261118T170537Z",
+  "model": "gpt-6-luna",
+  "tickets": 30,
+  "outcomes": {
+    "posted": 30
+  },
+  "tokens_in": 1279,
+  "tokens_out": 10613,
+  "cache_read": 84740,
+  "cost_usd": 0.006282,
+  "helpdesk_status": {
+    "mode": "practice",
+    "candidate": "dhaneshpk359",
+    "endpoints": [
+      "GET  /status",
+      "GET  /examples",
+      "GET  /tickets?limit=10&cursor=<id>&status=open|all",
+      "GET  /tickets/{id}",
+      "POST /tickets/{id}/reply",
+      "POST /tickets/{id}/handoff",
+      "POST /tickets/{id}/close",
+      "POST /practice/reset"
+    ],
+    "live_ends_at": null,
+    "open_tickets": 0,
+    "handled_tickets": 30
+  }
+}
