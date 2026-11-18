@@ -196,7 +196,9 @@ def _handoff_note(rt: RedactedTicket, p: Proposal, facts: Facts, reasons: list[s
     if not note or check_note(note):
         note = f"Summary: {p.summary_en.strip()}"
     plan_line = f"Plan: {rt.ticket.customer_plan or 'unknown'}. Channel: {rt.ticket.channel or 'unknown'}."
-    lines = [note] if plan_line in note else [note, plan_line]  # the model often writes this line itself
+    plan = re.escape(rt.ticket.customer_plan or "unknown")
+    already_there = re.search(rf"\bplan\s*:\s*{plan}\b", note, re.IGNORECASE)  # the model often writes it itself
+    lines = [note] if already_there else [note, plan_line]
     if rt.had_payment:
         lines.append("The customer sent payment details. They were redacted; ask for a secure channel.")
     if facts.instructed:

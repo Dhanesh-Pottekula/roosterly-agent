@@ -185,10 +185,10 @@ def test_non_english_note_is_replaced_by_the_english_summary():
     assert note.startswith("Summary: The customer asks") and "Plan: Plus. Channel: email." in note
 
 
-def test_plan_and_channel_appear_once_in_the_note():
+@pytest.mark.parametrize("written", ["Plan: Plus. Channel: email.", "Plan: Plus; channel: email. Due Friday."])
+def test_plan_and_channel_appear_once_in_the_note(written):
     proposal = make_proposal(
-        proposed_action="handoff",
-        handoff_note="Customer asks which Android version is needed.\nPlan: Plus. Channel: email.",
+        proposed_action="handoff", handoff_note=f"Customer asks which Android version is needed.\n{written}"
     )
     note = decide(proposal, verdict=None).decision.handoff_note
-    assert note.count("Plan: Plus. Channel: email.") == 1
+    assert note.lower().count("plan: plus") == 1 and written in note
