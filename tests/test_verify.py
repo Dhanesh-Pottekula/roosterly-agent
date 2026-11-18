@@ -352,5 +352,10 @@ def test_a_negated_promise_in_any_language_is_not_a_promise(draft, language):
     assert "promise_in_draft" not in problems(draft, language=language, requests=F10)
 
 
-def test_verifier_prompt_contains_the_clients_rules_verbatim():
-    assert kb.rules_text in build_verifier_prompt(kb)
+def test_verifier_prompt_checks_every_always_human_rule():
+    prompt = build_verifier_prompt(kb)
+    assert all(rule.definition in prompt for rule in ALWAYS_HUMAN.values())
+
+
+def test_verifier_prompt_lets_a_help_centre_statement_apply_to_the_customers_own_case():
+    assert "applies a help centre statement to the customer's own case" in build_verifier_prompt(kb)
