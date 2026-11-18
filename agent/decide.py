@@ -84,6 +84,9 @@ priority, judged from what the ticket describes, never from its tone or from a p
 - P3: Something is wrong or unclear, but there is a workaround.
 - P4: No urgency: how-to questions, ideas, cosmetic issues.
 A how-to question about prices or invoices is P4, because no money is at stake.
+When a help centre entry explains why something does not work and what the customer can do about \
+it (for example a requirement their device or plan does not meet), the customer has a workaround: \
+P3, not P2. P2 is for a customer who is blocked with nothing in the help centre to get unblocked.
 
 priority_reason: one sentence in English saying why this category and priority fit.
 
