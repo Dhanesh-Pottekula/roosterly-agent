@@ -88,17 +88,13 @@ def _quote_problem(request: Request, kb: KnowledgeBase) -> str | None:
     entry = kb.entries.get(entry_id.group()) if entry_id else None
     if entry is None or not request.faq_quote:
         return "request_without_faq_answer"
-    # A quote may leave out the English meaning in brackets after a Dutch menu name, so brackets
-    # that really are in the entry are dropped on both sides. An invented bracket stays and fails.
-    real_brackets = {_normalise(b) for b in _BRACKET.findall(entry.text)}
-    quote = _BRACKET.sub(lambda m: "" if _normalise(m.group()) in real_brackets else m.group(), request.faq_quote)
-    quote = _normalise(quote)
-    if len(quote) < MIN_QUOTE_LENGTH or quote not in _normalise(_BRACKET.sub("", entry.text)):
+    quote = _normalise(request.faq_quote)
+    # The quote must be in the entry as written, or in the entry without the English meanings
+    # in brackets after Dutch menu names (a quote may leave those out).
+    without_brackets = re.sub(r"\s*\([^()]*\)", "", entry.text)
+    if len(quote) < MIN_QUOTE_LENGTH or not (quote in _normalise(entry.text) or quote in _normalise(without_brackets)):
         return "faq_quote_not_in_help_centre"
     return None
-
-
-_BRACKET = re.compile(r"\s*\([^()]*\)")
 
 
 def _normalise(text: str) -> str:

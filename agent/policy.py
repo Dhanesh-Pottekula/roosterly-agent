@@ -87,8 +87,13 @@ def apply_policy(
         manipulated=manipulated,
     )
     action, reasons = choose_action(rt, p, facts, detected_language, reply_problems, verdict)
-    builders = {"close": _close, "reply": _reply, "handoff": _handoff}
-    return PolicyResult(builders[action](rt, p, facts, reasons), reasons)
+    if action == "close":
+        decision = _close(facts)
+    elif action == "reply":
+        decision = _reply(p, facts)
+    else:
+        decision = _handoff(rt, p, facts, reasons)
+    return PolicyResult(decision, reasons)
 
 
 def posted_language(proposed: str, detected: str) -> Language | None:
@@ -150,7 +155,7 @@ def choose_action(
 # --- building the decision ------------------------------------------------------------
 
 
-def _close(rt: RedactedTicket, p: Proposal, facts: Facts, reasons: list[str]) -> Decision:
+def _close(facts: Facts) -> Decision:
     return Decision(
         action="close",
         language=facts.language or "nl",
@@ -161,7 +166,7 @@ def _close(rt: RedactedTicket, p: Proposal, facts: Facts, reasons: list[str]) ->
     )
 
 
-def _reply(rt: RedactedTicket, p: Proposal, facts: Facts, reasons: list[str]) -> Decision:
+def _reply(p: Proposal, facts: Facts) -> Decision:
     faq_ids = ", ".join(sorted({request.faq_id for request in p.requests if request.faq_id}))
     return Decision(
         action="reply",
