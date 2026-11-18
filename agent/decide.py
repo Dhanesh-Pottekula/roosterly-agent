@@ -134,5 +134,19 @@ def ticket_block(rt: RedactedTicket) -> str:
     )
 
 
-def decide(rt: RedactedTicket, kb: KnowledgeBase, llm: LLM, model: str) -> tuple[Proposal, Usage]:
-    return llm.complete_json(build_system_prompt(kb), ticket_block(rt), Proposal, model)
+LANGUAGE_NAMES = {"nl": "Dutch", "en": "English", "de": "German"}
+
+
+def decide(
+    rt: RedactedTicket, kb: KnowledgeBase, llm: LLM, model: str, detected_language: str | None = None
+) -> tuple[Proposal, Usage]:
+    """Propose a decision. `detected_language` is passed only on a second try, after the proposer
+    and the language detector disagreed: the model then hears what the detector found."""
+    user = ticket_block(rt)
+    if detected_language in LANGUAGE_NAMES:
+        user += (
+            f"\n\nA language detector reads the customer's sentences as {LANGUAGE_NAMES[detected_language]} "
+            f"({detected_language}). Set language to that and write any reply in it, unless the customer's "
+            "own sentences are clearly in another language."
+        )
+    return llm.complete_json(build_system_prompt(kb), user, Proposal, model)

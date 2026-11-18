@@ -44,6 +44,11 @@ def decide_ticket(ticket: Ticket, kb: KnowledgeBase, llm: LLM, model: str) -> Ti
     reply_problems: list[str] = []
     try:
         proposal, outcome.usage = decide(rt, kb, llm, model)
+        if detected != "unknown" and proposal.language not in (detected, "other"):
+            # The model sometimes labels a German ticket as Dutch and replies in Dutch. Ask once
+            # more with the detector's finding; if they still disagree, the policy hands it off.
+            proposal, usage = decide(rt, kb, llm, model, detected_language=detected)
+            outcome.usage += usage
         outcome.proposal = proposal
         if proposal.proposed_action == "reply":
             language = posted_language(proposal.language, detected) or "en"

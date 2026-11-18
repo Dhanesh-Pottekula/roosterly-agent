@@ -98,3 +98,31 @@ def test_card_followed_by_its_expiry_never_reaches_the_llm_or_the_post():
     sent = " ".join(user for _, _, user in llm.calls)
     assert "5555" not in sent and "03/31" not in sent and "[CARD]" in sent
     assert outcome.handoff_reasons == ["payment_details_in_ticket"] and outcome.decision.priority == "P2"
+
+
+def _proposal_by_hint(first, after_hint):
+    """The proposer's answer depends on whether the prompt carries the language detector's finding."""
+    return lambda user: after_hint if "language detector" in user else first
+
+
+def test_proposer_that_misreads_the_language_is_asked_once_more_with_the_detectors_finding():
+    wrong = make_proposal(language="en", draft_reply="Hi! The app works on Android 10 and later.")
+    llm = FakeLLM(proposal=_proposal_by_hint(wrong, make_proposal()))
+    outcome = decide_ticket(ticket(), kb, llm, MODEL)
+    assert llm.count(Proposal) == 2 and "(nl)" in llm.calls[1][2]
+    assert outcome.decision.action == "reply" and outcome.decision.language == "nl"
+    assert outcome.usage.input_tokens == 3000  # both proposer calls and the verifier are counted
+
+
+def test_a_proposer_that_still_disagrees_after_the_hint_hands_off():
+    wrong = make_proposal(language="en", draft_reply="Hi! The app works on Android 10 and later.")
+    llm = FakeLLM(proposal=wrong)
+    outcome = decide_ticket(ticket(), kb, llm, MODEL)
+    assert llm.count(Proposal) == 2
+    assert outcome.decision.action == "handoff" and outcome.handoff_reasons == ["language_disagreement"]
+
+
+def test_other_language_is_not_second_guessed():
+    llm = FakeLLM(proposal=make_proposal(language="other", proposed_action="handoff", draft_reply=None))
+    decide_ticket(ticket(), kb, llm, MODEL)
+    assert llm.count(Proposal) == 1
