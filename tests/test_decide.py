@@ -118,3 +118,11 @@ def test_overload_and_timeouts_are_transient(error):
 def test_a_wrong_key_or_rejected_request_stops_the_run_instead_of_escalating_everything(status):
     with pytest.raises(LLMFatalError):
         call(client_returning(_status_error(status)))
+
+
+def test_proposer_prompt_contains_the_clients_rules_verbatim():
+    from agent.decide import build_system_prompt
+    from agent.faq import load_kb
+
+    kb = load_kb()
+    assert kb.rules_text and kb.rules_text in build_system_prompt(kb)

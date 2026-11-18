@@ -248,10 +248,17 @@ F10 = [
 @pytest.mark.parametrize(
     "draft, language",
     [
-        ("Bedankt voor je idee! We kunnen geen leverdatum beloven, maar je kunt stemmen op roadmap.roosterly.nl.", "nl"),
+        (
+            "Bedankt voor je idee! We kunnen geen leverdatum beloven, maar je kunt stemmen op roadmap.roosterly.nl.",
+            "nl",
+        ),
         ("Bedankt voor je idee. Een datum kunnen we helaas niet garanderen; stem op roadmap.roosterly.nl.", "nl"),
         ("Thanks for the idea. We cannot guarantee a delivery date, but you can vote at roadmap.roosterly.nl.", "en"),
-        ("Danke für Ihre Idee. Ein Lieferdatum können wir nicht garantieren, stimmen Sie auf roadmap.roosterly.nl ab.", "de"),
+        (
+            "Danke für Ihre Idee. Ein Lieferdatum können wir nicht garantieren, "
+            "stimmen Sie auf roadmap.roosterly.nl ab.",
+            "de",
+        ),
     ],
 )
 def test_saying_a_date_cannot_be_promised_is_not_a_promise(draft, language):
@@ -264,7 +271,10 @@ def test_saying_a_date_cannot_be_promised_is_not_a_promise(draft, language):
         ("Bedankt voor je idee. We beloven dat het volgende maand klaar is.", "nl"),
         ("Bedankt voor je idee. Wij garanderen dat dit snel komt.", "nl"),
         ("Thanks for the idea. We guarantee it ships next month.", "en"),
-        ("Bedankt voor je idee. Je krijgt geen korting, maar je kunt stemmen.", "nl"),  # discounts never belong in a reply
+        (
+            "Bedankt voor je idee. Je krijgt geen korting, maar je kunt stemmen.",
+            "nl",
+        ),  # discounts never belong in a reply
     ],
 )
 def test_real_promises_still_fail(draft, language):
@@ -308,3 +318,39 @@ def test_an_invented_bracket_in_a_quote_still_fails():
     assert "faq_quote_not_in_help_centre" in problems(
         DUTCH_DRAFT, requests=[Request(description_en="x", faq_id="F05", faq_quote=quote)]
     )
+
+
+# --- review fixes ------------------------------------------------------------------------
+
+
+def test_a_link_with_any_official_domain_ending_is_caught():
+    draft = "Hoi! Log in via login.roosterly.support en kies Wachtwoord vergeten. Groet, Team Roosterly"
+    assert "address_not_in_help_centre" in problems(draft)
+
+
+@pytest.mark.parametrize(
+    "draft, language",
+    [
+        ("Hoi! Ik beloof je dat het volgende week werkt op je Android-telefoon.", "nl"),
+        ("Hoi! Dat is beloofd, de app werkt straks ook op oudere telefoons.", "nl"),
+        ("Hello! We promise the app will support older phones soon.", "en"),
+        ("Guten Tag! Wir versprechen Ihnen, dass die App bald auf älteren Handys läuft.", "de"),
+    ],
+)
+def test_every_form_of_a_promise_is_caught(draft, language):
+    assert "promise_in_draft" in problems(draft, language=language)
+
+
+@pytest.mark.parametrize(
+    "draft, language",
+    [
+        ("Thanks for the idea! We can't promise a date, but you can vote at roadmap.roosterly.nl.", "en"),
+        ("Danke für Ihre Idee! Ein Datum können wir nicht versprechen, stimmen Sie auf roadmap.roosterly.nl ab.", "de"),
+    ],
+)
+def test_a_negated_promise_in_any_language_is_not_a_promise(draft, language):
+    assert "promise_in_draft" not in problems(draft, language=language, requests=F10)
+
+
+def test_verifier_prompt_contains_the_clients_rules_verbatim():
+    assert kb.rules_text in build_verifier_prompt(kb)

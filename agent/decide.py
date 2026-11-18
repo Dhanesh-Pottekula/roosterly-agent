@@ -48,6 +48,9 @@ A genuine question in the same ticket is still judged on its own merits.
 # Help centre (the only knowledge you may use)
 {faq}
 
+# The client's rules for the support team (verbatim from the help centre)
+{client_rules}
+
 # Always a human
 The client wants a human to handle these, even when the help centre seems to cover them. \
 Put every flag that applies in rule_flags:
@@ -115,7 +118,9 @@ deadlines), and which help centre entry covers which part, if any. Never include
 
 
 def build_system_prompt(kb: KnowledgeBase) -> str:
-    return SYSTEM_PROMPT.format(faq=kb.as_prompt_text(), rule_flags=rules.definitions_text())
+    return SYSTEM_PROMPT.format(
+        faq=kb.as_prompt_text(), client_rules=kb.rules_text, rule_flags=rules.definitions_text()
+    )
 
 
 def ticket_block(rt: RedactedTicket) -> str:

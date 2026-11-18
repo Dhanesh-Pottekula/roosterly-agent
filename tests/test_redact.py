@@ -89,3 +89,17 @@ def test_ordinary_numbers_are_left_alone(text):
 def test_ticket_subject_and_body_are_both_redacted():
     rt = redact_ticket(Ticket(id="X1", subject=f"Kaart {CARD}", body="Zie onderwerp."))
     assert rt.had_payment and "[CARD]" in rt.subject and rt.body == "Zie onderwerp."
+
+
+@pytest.mark.parametrize(
+    "iban",
+    [
+        "LT12 1000 0111 0100 1000",  # standard example IBANs from the IBAN registry
+        "HR12 1001 0051 8630 0016 0",
+        "CZ65 0800 0000 1920 0014 5399",
+        "RO49 AAAA 1B31 0075 9384 0000",
+    ],
+)
+def test_ibans_from_every_iban_country_are_redacted(iban):
+    redacted, found = redact_payment(f"Graag terugstorten op {iban}, dank je.")
+    assert found and "[IBAN]" in redacted

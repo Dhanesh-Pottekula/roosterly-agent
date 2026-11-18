@@ -10,34 +10,13 @@ _RULES_HEADING = "## The client's rules for the support team"
 FAQ_PATH = Path(__file__).parent.parent / "faq.md"
 
 _URL = re.compile(r"(https?://|www\.)?((?:[A-Za-z0-9-]+\.)+([A-Za-z]{2,})(/[^\s()\[\]<>\"'“”‘’*]*)?)")
-# Without "http", "www" or a path, a dotted word only counts as an address if it ends like one.
-# That keeps "excl.btw", "uren.csv" and a missing space after a full stop from looking like links.
+# Without "http", "www" or a path, a dotted word only counts as an address if it ends in a real
+# top-level domain. The list is IANA's official one (agent/tlds.txt, refresh it from
+# https://data.iana.org/TLD/tlds-alpha-by-domain.txt), so ".ru" or ".support" is caught while
+# "excl.btw", "uren.csv" and a missing space after a full stop are not mistaken for links.
+_TLD_FILE = Path(__file__).parent / "tlds.txt"
 _ADDRESS_ENDINGS = frozenset(
-    [
-        "nl",
-        "com",
-        "org",
-        "net",
-        "eu",
-        "de",
-        "be",
-        "io",
-        "app",
-        "co",
-        "uk",
-        "info",
-        "biz",
-        "dev",
-        "ai",
-        "me",
-        "fr",
-        "es",
-        "it",
-        "xyz",
-        "online",
-        "site",
-        "shop",
-    ]
+    line.strip().lower() for line in _TLD_FILE.read_text(encoding="utf-8").splitlines() if line and line[0] != "#"
 )
 _EURO_AMOUNT = re.compile(  # "€6", "EUR 6", "euro 6" and "6 €", "6,- euro", "6 euros"
     r"(?:€|\b(?:EUR|euro))\s{0,2}(\d[\d.,]*)|(\d[\d.,]*)-?\s?(?:€|(?:euros?|EUR)\b)", re.IGNORECASE
@@ -91,8 +70,12 @@ def find_euro_amounts(text: str) -> set[Decimal]:
 
 def load_kb(path: str | Path = FAQ_PATH) -> KnowledgeBase:
     text = Path(path).read_text(encoding="utf-8")
-    faq_part, _, rules_part = text.partition(_RULES_HEADING)
+    faq_part, found_rules, rules_part = text.partition(_RULES_HEADING)
+    if not found_rules or not rules_part.strip():
+        raise ValueError(f"{path}: no client rules found under '{_RULES_HEADING}'")
     headings = list(_ENTRY_HEADING.finditer(faq_part))
+    if not headings:
+        raise ValueError(f"{path}: no help centre entries found (expected headings like '## F01 · Title')")
     entries = {}
     for heading, next_heading in zip(headings, headings[1:] + [None], strict=True):
         end = next_heading.start() if next_heading else len(faq_part)

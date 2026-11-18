@@ -56,3 +56,31 @@ def test_ordinary_words_are_not_mistaken_for_addresses_or_prices():
 def test_every_rule_flag_has_a_rule():
     assert set(get_args(RuleFlag)) == set(ALWAYS_HUMAN)
     assert all(flag in definitions_text() for flag in ALWAYS_HUMAN)
+
+
+# --- review fixes: no hand-picked lists where an official one exists ----------------------
+
+
+def test_any_official_domain_ending_counts_as_an_address():
+    assert find_urls("Ga naar roosterly-hulp.ru of login.roosterly.support") == {
+        "roosterly-hulp.ru",
+        "login.roosterly.support",
+    }
+
+
+def test_the_clients_rules_are_parsed_from_the_help_centre():
+    assert "Never repeat payment details" in kb.rules_text
+    assert "always go to a human" in kb.rules_text
+
+
+def test_a_help_centre_without_entries_or_rules_is_refused(tmp_path):
+    import pytest
+
+    no_rules = tmp_path / "faq.md"
+    no_rules.write_text("## F01 · Title\nSome text.\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="rules"):
+        load_kb(no_rules)
+    no_entries = tmp_path / "empty.md"
+    no_entries.write_text("## The client's rules for the support team\n- Be nice.\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="entries"):
+        load_kb(no_entries)

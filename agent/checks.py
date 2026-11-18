@@ -17,17 +17,19 @@ from agent.redact import contains_payment
 MIN_QUOTE_LENGTH = 12  # long enough to be evidence, short enough for "We read every idea."
 
 _PERCENT = re.compile(r"%|\b(procent|prozent|percent)\b", re.IGNORECASE)
+# The promise verbs, in every form: beloven/beloof/beloofd, garanderen, promise/promised,
+# guarantee, versprechen/versprochen, garantieren, zusagen/zugesagt.
+_PROMISE_VERB = r"belo(?:v|of)\w*|garand\w*|garant\w*|guarantee\w*|promis\w*|versp?r[oe]ch\w*|zu(?:ge)?sag\w*"
 _PROMISE = re.compile(
-    r"korting|gratis|terugbetal|terugstort|vergoed|belov|garand|garant"
-    r"|refund|discount|free of charge|guarantee|compensat"
+    rf"korting|gratis|terugbetal|terugstort|vergoed|{_PROMISE_VERB}"
+    r"|refund|discount|free of charge|compensat"
     r"|rabatt|erstatt|kostenlos|entschädig",
     re.IGNORECASE,
 )
 # "We can't promise a date" is the help centre's own message (F10), not a promise. Only the
 # promise verbs can be negated this way; a discount or refund never belongs in a reply at all.
 _NEGATED_PROMISE = re.compile(
-    r"\b(geen|niet|nooit|not|no|cannot|can't|never|nicht|kein\w*)\b(\W+\w+){0,4}?\W+"
-    r"(belov\w*|garand\w*|garant\w*|guarantee\w*)",
+    rf"\b(geen|niet|nooit|not|no|cannot|can't|can’t|never|nicht|kein\w*)\b(\W+\w+){{0,4}}?\W+({_PROMISE_VERB})",
     re.IGNORECASE,
 )
 # A response time is a promise. Minutes are left out: the help centre itself says "within 10 minutes".

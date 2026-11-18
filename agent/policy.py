@@ -32,12 +32,23 @@ EXPLANATIONS = {
 
 # Text aimed at the reader's AI rather than at the support team: "ignore your instructions",
 # "note for the AI assistant". The model is asked to flag this too; this pattern catches the
-# common forms even when the model was talked out of flagging them. It is narrow on purpose:
-# a customer who merely mentions a chatbot or a system message must not lose their priority.
+# common forms even when the model was talked out of flagging them, in Dutch, English and German.
+# It matches text *addressed to* an AI, never a mere mention: "I asked an AI tool" keeps its priority.
+_AI = r"(ai|ki|assistant|assistent|chatbot|bot|model|taalmodel|language model|sprachmodell)\b"
+_ARTICLE = r"(?:(?:the|de|het|die|den|das|der)\s+)?"
 _ADDRESSES_THE_AI = re.compile(
-    r"\b(negeer|ignore|ignoriere|vergeet|forget|vergiss)\b.{0,40}\b(instructi\w*|regels|rules|anweisung\w*|regeln)\b"
-    r"|\b(voor|aan|to|for|für|an) (de |het |the |den |die |das )?(ai\b|chatbot|taalmodel|language model|sprachmodell)",
-    re.IGNORECASE,
+    # "ignore your instructions", "negeer alle eerdere regels", "vergiss deine Anweisungen"
+    r"\b(negeer|ignore|ignoriere|disregard|vergeet|forget|vergiss)\b.{0,40}"
+    r"\b(instructi\w*|regels|rules|richtlijnen|prompt\w*|anweisung\w*|regeln)\b"
+    # "note to the assistant", "notitie voor de AI-assistent", "Hinweis für die KI"
+    rf"|\b(note|message|instruction|opmerking|notitie|bericht|hinweis|nachricht|anweisung)\s+"
+    rf"(to|for|voor|aan|für|an)\s+{_ARTICLE}{_AI}"
+    # a line or sentence that opens by addressing the AI: "To the AI: ...", "Liebe KI, ..."
+    rf"|(?:^|[.!?]\s+)(to|aan|dear|beste|liebe|lieber|hey|hi|hallo)\s+{_ARTICLE}{_AI}"
+    rf"|(?:^|[.!?]\s+)an\s+(die|den|das|der)\s+{_AI}"  # German "An die KI"; English "An AI ..." is not"
+    # a fake system header: "SYSTEM MESSAGE:", "SYSTEEMBERICHT:", "Systemnachricht:"
+    r"|\b(system\s?message|system\s?prompt|systeembericht|systemnachricht)\s*:",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 

@@ -107,8 +107,7 @@ class HelpdeskClient:
             if response.status_code == 404:
                 return PostOutcome.NOT_FOUND
             if response.status_code in (400, 422):  # the body is wrong; the same body will fail again
-                error = response.json()
-                raise ValidationRejected(error.get("problems") or [error.get("message", "bad request")])
+                raise ValidationRejected(_problems(response))
             self._checked(response)
             return PostOutcome.POSTED
         raise TransientExhausted(f"POST {path}: still ambiguous after {MAX_POST_ROUNDS} rounds")
@@ -168,6 +167,17 @@ class HelpdeskClient:
 
     def _backoff(self, attempt: int) -> None:
         self._sleep(min(0.5 * 2**attempt, 8.0) + random.uniform(0, 0.25))
+
+
+def _problems(response: httpx.Response) -> list:
+    """What the helpdesk says is wrong with a rejected decision, whatever shape the body has."""
+    try:
+        error = response.json()
+    except ValueError:  # an HTML page from a proxy, or an empty body
+        return [f"{response.status_code}: {response.text[:200] or 'no details'}"]
+    if not isinstance(error, dict):
+        return [f"{response.status_code}: {error}"]
+    return error.get("problems") or [f"{response.status_code}: {error.get('message', 'bad request')}"]
 
 
 def _retry_after_seconds(response: httpx.Response) -> float:

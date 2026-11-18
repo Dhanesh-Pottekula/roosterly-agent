@@ -141,3 +141,16 @@ def test_name_header_is_sent_only_when_asked():
     client.status()
     assert [r.headers.get("X-Candidate-Name") for r in fake.requests] == ["Test Candidate", None]
     assert all(r.headers["X-Candidate-Email"] == "me@example.test" for r in fake.requests)
+
+
+def test_a_rejection_without_a_json_body_is_still_a_rejection():
+    import httpx
+
+    def html_error(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(422, text="<html>Unprocessable</html>", headers={"Content-Type": "text/html"})
+
+    clock = FakeClock()
+    client = HelpdeskClient(SETTINGS, transport=httpx.MockTransport(html_error), sleep=clock.sleep, clock=clock)
+    with pytest.raises(ValidationRejected) as rejected:
+        client.post_decision("X001", HANDOFF)
+    assert "422" in str(rejected.value.problems)

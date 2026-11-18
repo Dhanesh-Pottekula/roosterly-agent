@@ -1,8 +1,7 @@
 """Remove payment details from text before it reaches the LLM, a reply, a note or a log.
 
 A card number or IBAN is recognised by its checksum, so ordinary numbers are left alone.
-Limits, on purpose: an IBAN with a typo fails its checksum and is not recognised, and only
-the countries in IBAN_LENGTHS are covered.
+Limit, on purpose: an IBAN with a typo fails its checksum and is not recognised.
 """
 
 import re
@@ -16,24 +15,27 @@ _CARD_WORD = re.compile(r"kaart|card|visa|master|amex|karte|pinpas", re.IGNORECA
 _FOUR_BY_FOUR = re.compile(rf"\b\d{{4}}(?:{_SEPARATORS}\d{{4}}){{3}}\b")
 
 _IBAN_START = re.compile(r"\b[A-Z]{2}\d{2}(?=[\s.\-]?[A-Z0-9])", re.IGNORECASE)
+# IBAN length per country, from the SWIFT IBAN registry (every country that issues IBANs).
+# The mod-97 checksum below is what proves an IBAN; the length only says where it ends.
 IBAN_LENGTHS = {
-    "NL": 18,
-    "BE": 16,
-    "DE": 22,
-    "FR": 27,
-    "LU": 20,
-    "AT": 20,
-    "CH": 21,
-    "ES": 24,
-    "IT": 27,
-    "PT": 25,
-    "GB": 22,
-    "IE": 22,
-    "DK": 18,
-    "SE": 24,
-    "NO": 15,
-    "FI": 18,
-    "PL": 28,
+    **dict.fromkeys(["NO"], 15),
+    **dict.fromkeys(["BE"], 16),
+    **dict.fromkeys(["DK", "FI", "FK", "FO", "GL", "NL", "SD"], 18),
+    **dict.fromkeys(["MK", "SI"], 19),
+    **dict.fromkeys(["AT", "BA", "EE", "KZ", "LT", "LU", "MN", "XK"], 20),
+    **dict.fromkeys(["CH", "HR", "LI", "LV"], 21),
+    **dict.fromkeys(["BG", "BH", "CR", "DE", "GB", "GE", "IE", "ME", "RS", "VA"], 22),
+    **dict.fromkeys(["AE", "GI", "IL", "IQ", "OM", "SO", "TL"], 23),
+    **dict.fromkeys(["CZ", "ES", "MD", "PK", "RO", "SA", "SE", "SK", "TN", "VG"], 24),
+    **dict.fromkeys(["LY", "PT", "ST"], 25),
+    **dict.fromkeys(["IS", "TR"], 26),
+    **dict.fromkeys(["BI", "DJ", "FR", "GR", "IT", "MC", "MR", "SM"], 27),
+    **dict.fromkeys(["AL", "AZ", "BY", "CY", "DO", "GT", "HN", "HU", "LB", "NI", "PL", "SV"], 28),
+    **dict.fromkeys(["BR", "EG", "PS", "QA", "UA"], 29),
+    **dict.fromkeys(["JO", "KW", "MU", "YE"], 30),
+    **dict.fromkeys(["MT", "SC"], 31),
+    **dict.fromkeys(["LC"], 32),
+    **dict.fromkeys(["RU"], 33),
 }
 
 _CVC = re.compile(
