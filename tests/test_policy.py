@@ -183,3 +183,12 @@ def test_non_english_note_is_replaced_by_the_english_summary():
     )
     note = decide(proposal, verdict=None).decision.handoff_note
     assert note.startswith("Summary: The customer asks") and "Plan: Plus. Channel: email." in note
+
+
+def test_plan_and_channel_appear_once_in_the_note():
+    proposal = make_proposal(
+        proposed_action="handoff",
+        handoff_note="Customer asks which Android version is needed.\nPlan: Plus. Channel: email.",
+    )
+    note = decide(proposal, verdict=None).decision.handoff_note
+    assert note.count("Plan: Plus. Channel: email.") == 1
